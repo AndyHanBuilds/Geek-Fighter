@@ -1,0 +1,278 @@
+{
+ "format": "mp3",
+ "files": {
+  "bounce_back_sting.mp3": {
+   "kind": "sting",
+   "situation": "bounce_back",
+   "duration_seconds": 1.31
+  },
+  "crowd_cheer.mp3": {
+   "kind": "crowd",
+   "situation": "win",
+   "duration_seconds": 3.03
+  },
+  "crowd_gasp.mp3": {
+   "kind": "crowd",
+   "situation": "ko",
+   "duration_seconds": 1.52
+  },
+  "ko_bell.mp3": {
+   "kind": "bell",
+   "situation": "ko",
+   "duration_seconds": 2.51
+  },
+  "punch_boing_1.mp3": {
+   "kind": "impact",
+   "situation": "hit_boing",
+   "duration_seconds": 0.91
+  },
+  "punch_heavy_1.mp3": {
+   "kind": "impact",
+   "situation": "hit_heavy",
+   "duration_seconds": 1.04
+  },
+  "punch_heavy_2.mp3": {
+   "kind": "impact",
+   "situation": "hit_heavy",
+   "duration_seconds": 0.55
+  },
+  "punch_heavy_3.mp3": {
+   "kind": "impact",
+   "situation": "hit_heavy",
+   "duration_seconds": 0.94
+  },
+  "punch_light_1.mp3": {
+   "kind": "impact",
+   "situation": "hit_light",
+   "duration_seconds": 0.34
+  },
+  "punch_light_2.mp3": {
+   "kind": "impact",
+   "situation": "hit_light",
+   "duration_seconds": 0.37
+  },
+  "punch_light_3.mp3": {
+   "kind": "impact",
+   "situation": "hit_light",
+   "duration_seconds": 0.39
+  },
+  "punch_medium_1.mp3": {
+   "kind": "impact",
+   "situation": "hit_medium",
+   "duration_seconds": 0.63
+  },
+  "punch_medium_2.mp3": {
+   "kind": "impact",
+   "situation": "hit_medium",
+   "duration_seconds": 0.39
+  },
+  "punch_medium_3.mp3": {
+   "kind": "impact",
+   "situation": "hit_medium",
+   "duration_seconds": 0.42
+  },
+  "punch_squish_1.mp3": {
+   "kind": "impact",
+   "situation": "hit_squish",
+   "duration_seconds": 0.44
+  },
+  "punch_squish_2.mp3": {
+   "kind": "impact",
+   "situation": "hit_squish",
+   "duration_seconds": 0.63
+  },
+  "ui_back.mp3": {
+   "kind": "ui",
+   "situation": "back",
+   "duration_seconds": 0.52
+  },
+  "ui_click.mp3": {
+   "kind": "ui",
+   "situation": "click",
+   "duration_seconds": 0.52
+  },
+  "ui_confirm.mp3": {
+   "kind": "ui",
+   "situation": "confirm",
+   "duration_seconds": 0.63
+  },
+  "ui_hover.mp3": {
+   "kind": "ui",
+   "situation": "hover",
+   "duration_seconds": 0.24
+  },
+  "vo_bounce_back_1.mp3": {
+   "kind": "voice",
+   "situation": "bounce_back",
+   "text": "BOUNCE BACK!!!",
+   "duration_seconds": 1.23
+  },
+  "vo_bounce_back_2.mp3": {
+   "kind": "voice",
+   "situation": "bounce_back",
+   "text": "It's ALIVE! The face is BACK!",
+   "duration_seconds": 2.64
+  },
+  "vo_bounce_back_3.mp3": {
+   "kind": "voice",
+   "situation": "bounce_back",
+   "text": "You can't keep a good head down!",
+   "duration_seconds": 2.04
+  },
+  "vo_combo_1.mp3": {
+   "kind": "voice",
+   "situation": "big_combo",
+   "text": "COMBO!!! Somebody stop this!",
+   "duration_seconds": 2.87
+  },
+  "vo_combo_2.mp3": {
+   "kind": "voice",
+   "situation": "big_combo",
+   "text": "That face is a DRUM SOLO, folks!",
+   "duration_seconds": 2.56
+  },
+  "vo_combo_3.mp3": {
+   "kind": "voice",
+   "situation": "big_combo",
+   "text": "Jelly EVERYWHERE!",
+   "duration_seconds": 1.8
+  },
+  "vo_first_hit_1.mp3": {
+   "kind": "voice",
+   "situation": "first_hit",
+   "text": "First jelly drawn!",
+   "duration_seconds": 1.62
+  },
+  "vo_first_hit_2.mp3": {
+   "kind": "voice",
+   "situation": "first_hit",
+   "text": "Right in the kisser!",
+   "duration_seconds": 1.46
+  },
+  "vo_ko_1.mp3": {
+   "kind": "voice",
+   "situation": "ko",
+   "text": "KNOCKOUT!!!",
+   "duration_seconds": 0.97
+  },
+  "vo_ko_2.mp3": {
+   "kind": "voice",
+   "situation": "ko",
+   "text": "DOWN GOES THE FACE!",
+   "duration_seconds": 1.75
+  },
+  "vo_ko_3.mp3": {
+   "kind": "voice",
+   "situation": "ko",
+   "text": "Good night, sweet noggin!",
+   "duration_seconds": 1.78
+  },
+  "vo_loading_1.mp3": {
+   "kind": "voice",
+   "situation": "loading",
+   "text": "Warming up the jelly. Please hold.",
+   "duration_seconds": 2.43
+  },
+  "vo_loading_2.mp3": {
+   "kind": "voice",
+   "situation": "loading",
+   "text": "Inflating your head. Almost done.",
+   "duration_seconds": 2.64
+  },
+  "vo_loading_3.mp3": {
+   "kind": "voice",
+   "situation": "loading",
+   "text": "Teaching your face to wobble.",
+   "duration_seconds": 1.83
+  },
+  "vo_near_ko_1.mp3": {
+   "kind": "voice",
+   "situation": "near_ko",
+   "text": "One more and it's LIGHTS OUT!",
+   "duration_seconds": 2.19
+  },
+  "vo_near_ko_2.mp3": {
+   "kind": "voice",
+   "situation": "near_ko",
+   "text": "That head is hanging on by a wobble!",
+   "duration_seconds": 2.46
+  },
+  "vo_round_start_1.mp3": {
+   "kind": "voice",
+   "situation": "round_start",
+   "text": "Round one... FIGHT!",
+   "duration_seconds": 1.96
+  },
+  "vo_round_start_2.mp3": {
+   "kind": "voice",
+   "situation": "round_start",
+   "text": "Gloves up! Let's get WOBBLY!",
+   "duration_seconds": 2.61
+  },
+  "vo_round_start_3.mp3": {
+   "kind": "voice",
+   "situation": "round_start",
+   "text": "Welcome to the JELLY DOME!",
+   "duration_seconds": 2.06
+  },
+  "vo_scan_1.mp3": {
+   "kind": "voice",
+   "situation": "scan_complete",
+   "text": "Face acquired! Very punchable!",
+   "duration_seconds": 2.93
+  },
+  "vo_scan_2.mp3": {
+   "kind": "voice",
+   "situation": "scan_complete",
+   "text": "Scan complete! Lovely target!",
+   "duration_seconds": 2.93
+  },
+  "vo_turn_swap_1.mp3": {
+   "kind": "voice",
+   "situation": "turn_swap",
+   "text": "Switch sides! It's REVENGE time!",
+   "duration_seconds": 2.82
+  },
+  "vo_turn_swap_2.mp3": {
+   "kind": "voice",
+   "situation": "turn_swap",
+   "text": "Your turn to take it on the chin!",
+   "duration_seconds": 1.91
+  },
+  "vo_whiff_1.mp3": {
+   "kind": "voice",
+   "situation": "whiff",
+   "text": "Swing and a miss! Nice breeze, though.",
+   "duration_seconds": 2.69
+  },
+  "vo_whiff_2.mp3": {
+   "kind": "voice",
+   "situation": "whiff",
+   "text": "You punched the atmosphere!",
+   "duration_seconds": 1.96
+  },
+  "whoosh_1.mp3": {
+   "kind": "whoosh",
+   "situation": "swing",
+   "duration_seconds": 0.24
+  },
+  "whoosh_2.mp3": {
+   "kind": "whoosh",
+   "situation": "swing",
+   "duration_seconds": 0.34
+  },
+  "whoosh_3.mp3": {
+   "kind": "whoosh",
+   "situation": "swing",
+   "duration_seconds": 0.34
+  }
+ },
+ "unfinished": {
+  "music_arena_loop.mp3": {
+   "kind": "music",
+   "situation": "arena_loop",
+   "note": "loop seam not checked by ear; has a short fade in and fade out",
+   "duration_seconds": 16.07
+  }
+ }
+}
