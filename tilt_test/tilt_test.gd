@@ -78,9 +78,9 @@ func _input(event: InputEvent) -> void:
 func _sensor_down() -> Vector2:
 	# Browser x points to the right of the screen, y to the top (portrait).
 	# Android reports acceleration opposite to gravity, iOS the other way round.
-	var sign := 1.0 if js_tilt.ios else -1.0
-	var ax: float = sign * js_tilt.ax
-	var ay: float = sign * js_tilt.ay
+	var flip := 1.0 if js_tilt.ios else -1.0
+	var ax: float = flip * js_tilt.ax
+	var ay: float = flip * js_tilt.ay
 	return Vector2(ax, -ay) / 9.81
 
 
