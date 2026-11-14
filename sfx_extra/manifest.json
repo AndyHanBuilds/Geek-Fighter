@@ -1,0 +1,249 @@
+{
+ "format": "wav",
+ "rules": {
+  "on_hit": "play one of the files with kind 'ouch' (random, never the same twice in a row), together with the normal punch sound",
+  "rare_variant": "on each hit there is a 1 in 10 chance (0.1) to play a file with kind 'brainrot' instead of the ouch",
+  "volume": "files are peak-normalized and compressed to be loud; play through a master gain (start at 1.8) followed by a compressor so it cannot clip, and give the player a volume slider and a mute button"
+ },
+ "files": {
+  "ouch_callum_1.wav": {
+   "kind": "ouch",
+   "situation": "hit",
+   "text": "Owwww!",
+   "voice": "Callum",
+   "duration_seconds": 1.08,
+   "rms_dbfs": -10.4,
+   "peak": 0.97
+  },
+  "ouch_callum_2.wav": {
+   "kind": "ouch",
+   "situation": "hit",
+   "text": "Ouchie!",
+   "voice": "Callum",
+   "duration_seconds": 1.13,
+   "rms_dbfs": -11.2,
+   "peak": 0.97
+  },
+  "ouch_callum_3.wav": {
+   "kind": "ouch",
+   "situation": "hit",
+   "text": "Oof!",
+   "voice": "Callum",
+   "duration_seconds": 0.6,
+   "rms_dbfs": -11.2,
+   "peak": 0.97
+  },
+  "ouch_callum_4.wav": {
+   "kind": "ouch",
+   "situation": "hit",
+   "text": "Ow ow ow ow!",
+   "voice": "Callum",
+   "duration_seconds": 1.89,
+   "rms_dbfs": -10.6,
+   "peak": 0.97
+  },
+  "ouch_callum_5.wav": {
+   "kind": "ouch",
+   "situation": "hit",
+   "text": "My face!",
+   "voice": "Callum",
+   "duration_seconds": 1.12,
+   "rms_dbfs": -10.9,
+   "peak": 0.97
+  },
+  "ouch_callum_6.wav": {
+   "kind": "ouch",
+   "situation": "hit",
+   "text": "Not the face!",
+   "voice": "Callum",
+   "duration_seconds": 1.35,
+   "rms_dbfs": -11.1,
+   "peak": 0.97
+  },
+  "ouch_callum_7.wav": {
+   "kind": "ouch",
+   "situation": "hit",
+   "text": "That actually hurt!",
+   "voice": "Callum",
+   "duration_seconds": 1.61,
+   "rms_dbfs": -10.7,
+   "peak": 0.97
+  },
+  "ouch_callum_8.wav": {
+   "kind": "ouch",
+   "situation": "hit",
+   "text": "Owie!",
+   "voice": "Callum",
+   "duration_seconds": 0.8,
+   "rms_dbfs": -11.1,
+   "peak": 0.97
+  },
+  "ouch_jessica_1.wav": {
+   "kind": "ouch",
+   "situation": "hit",
+   "text": "Owwww!",
+   "voice": "Jessica",
+   "duration_seconds": 1.14,
+   "rms_dbfs": -10.4,
+   "peak": 0.97
+  },
+  "ouch_jessica_2.wav": {
+   "kind": "ouch",
+   "situation": "hit",
+   "text": "Ouchie!",
+   "voice": "Jessica",
+   "duration_seconds": 0.91,
+   "rms_dbfs": -10.3,
+   "peak": 0.97
+  },
+  "ouch_jessica_3.wav": {
+   "kind": "ouch",
+   "situation": "hit",
+   "text": "Owie!",
+   "voice": "Jessica",
+   "duration_seconds": 0.88,
+   "rms_dbfs": -10.4,
+   "peak": 0.97
+  },
+  "ouch_jessica_4.wav": {
+   "kind": "ouch",
+   "situation": "hit",
+   "text": "Ow, my face!",
+   "voice": "Jessica",
+   "duration_seconds": 1.72,
+   "rms_dbfs": -11.0,
+   "peak": 0.97
+  },
+  "brainrot_voice_1.wav": {
+   "kind": "brainrot",
+   "situation": "hit_rare",
+   "text": "No cap, you just got cooked!",
+   "voice": "Liam",
+   "duration_seconds": 2.39,
+   "rms_dbfs": -11.3,
+   "peak": 0.97
+  },
+  "brainrot_voice_2.wav": {
+   "kind": "brainrot",
+   "situation": "hit_rare",
+   "text": "Skibidi!",
+   "voice": "Liam",
+   "duration_seconds": 0.7,
+   "rms_dbfs": -11.6,
+   "peak": 0.97
+  },
+  "brainrot_voice_3.wav": {
+   "kind": "brainrot",
+   "situation": "hit_rare",
+   "text": "That was so sigma.",
+   "voice": "Liam",
+   "duration_seconds": 1.76,
+   "rms_dbfs": -10.4,
+   "peak": 0.97
+  },
+  "brainrot_voice_4.wav": {
+   "kind": "brainrot",
+   "situation": "hit_rare",
+   "text": "Bruh.",
+   "voice": "Liam",
+   "duration_seconds": 0.65,
+   "rms_dbfs": -11.1,
+   "peak": 0.97
+  },
+  "brainrot_voice_5.wav": {
+   "kind": "brainrot",
+   "situation": "hit_rare",
+   "text": "L plus ratio!",
+   "voice": "Liam",
+   "duration_seconds": 1.63,
+   "rms_dbfs": -11.2,
+   "peak": 0.97
+  },
+  "brainrot_voice_6.wav": {
+   "kind": "brainrot",
+   "situation": "hit_rare",
+   "text": "Certified Ohio moment.",
+   "voice": "Liam",
+   "duration_seconds": 1.75,
+   "rms_dbfs": -11.0,
+   "peak": 0.97
+  },
+  "brainrot_voice_7.wav": {
+   "kind": "brainrot",
+   "situation": "hit_rare",
+   "text": "Negative aura!",
+   "voice": "Liam",
+   "duration_seconds": 1.27,
+   "rms_dbfs": -11.5,
+   "peak": 0.97
+  },
+  "brainrot_voice_8.wav": {
+   "kind": "brainrot",
+   "situation": "hit_rare",
+   "text": "Sheesh!",
+   "voice": "Liam",
+   "duration_seconds": 0.82,
+   "rms_dbfs": -10.9,
+   "peak": 0.97
+  },
+  "brainrot_airhorn.wav": {
+   "kind": "brainrot",
+   "situation": "hit_rare",
+   "prompt": "cartoon air horn blast, loud, short",
+   "duration_seconds": 2.35,
+   "rms_dbfs": -7.9,
+   "peak": 0.97
+  },
+  "brainrot_record_scratch.wav": {
+   "kind": "brainrot",
+   "situation": "hit_rare",
+   "prompt": "record scratch, comedic stop",
+   "duration_seconds": 2.17,
+   "rms_dbfs": -8.9,
+   "peak": 0.97
+  },
+  "brainrot_boom.wav": {
+   "kind": "brainrot",
+   "situation": "hit_rare",
+   "prompt": "comedic deep boom hit, bass drop, short",
+   "duration_seconds": 2.05,
+   "rms_dbfs": -6.9,
+   "peak": 0.97
+  },
+  "brainrot_bonk.wav": {
+   "kind": "brainrot",
+   "situation": "hit_rare",
+   "prompt": "cartoon bonk on the head with a toy hammer",
+   "duration_seconds": 0.67,
+   "rms_dbfs": -12.5,
+   "peak": 0.97
+  },
+  "brainrot_sad_trombone.wav": {
+   "kind": "brainrot",
+   "situation": "hit_rare",
+   "prompt": "comedic sad trombone wah wah wah wah",
+   "duration_seconds": 3.93,
+   "rms_dbfs": -10.2,
+   "peak": 0.97
+  },
+  "cartoon_boing.wav": {
+   "kind": "cartoon",
+   "situation": "bounce",
+   "prompt": "cartoon spring boing, bouncy",
+   "duration_seconds": 2.0,
+   "rms_dbfs": -11.6,
+   "peak": 0.97
+  },
+  "cartoon_slide_whistle_down.wav": {
+   "kind": "cartoon",
+   "situation": "hit",
+   "prompt": "cartoon slide whistle going down",
+   "duration_seconds": 2.96,
+   "rms_dbfs": -6.6,
+   "peak": 0.97
+  }
+ },
+ "unfinished": {
+  "all": "nobody has listened to these files; check a few by ear before shipping"
+ }
+}
