@@ -1,0 +1,67 @@
+FACE PUNCH - build plan (plain text, kept short)
+
+ART DIRECTION: "Saturday night toy prizefight"
+One look, used everywhere: a dark arena, one bright boxing ring, glossy toy-like
+shapes, comic lettering. You see the fight from the challenger's eyes, like
+Punch-Out and Wii Sports Boxing: the opponent's big head fills the middle, your
+two cartoon gloves sit at the bottom of the screen.
+- Palette: night navy and purple crowd, a blue ring mat under a warm spotlight,
+  magenta and cyan rim lights, yellow for every number and banner, red corner
+  against blue corner.
+- The head wears padded sparring headgear in its corner colour. It hides the
+  seam between the scanned face and the back of the head, so the head can turn
+  and wobble without looking like a flat mask. Neck, shoulders and body under it.
+- Lettering: Bangers (comic display font from jsDelivr) for banners and numbers,
+  system font for small text. Big, high contrast, readable on a phone.
+
+GAME FEEL (from shipped fighters and common practice)
+- Hit-stop: 40 to 60 ms for light hits, 90 to 140 ms for heavy, 250 ms on the KO.
+- Camera: directional kick, quick push-in that springs back, shake that grows
+  with the square of "trauma" and includes a little roll.
+- Squash and stretch: glove stretches in flight and squashes on contact, the
+  head squashes then the jelly springs carry on.
+- Layered hit: freeze, flash, shockwave ring, comic burst, sparks, a comic word,
+  thump. Small hits get small effects so the big ones stand out.
+- KO: slow motion, zoom, dark red backdrop with speed lines, "K.O." slams in,
+  stars circle the head, then the head springs upright: "BOUNCE BACK!".
+- Health bar with a white trail that lags behind the damage.
+
+THE THREE MOMENTS EVERYTHING SERVES
+1. Scan becomes a 3D head (scan-line reveal with a wire mesh, slow turn to show
+   depth, live expressions when a camera is on).
+2. The camera reads your hands (gloves follow them, punches detected).
+3. The impact (jelly, swelling lumps, bobble-head neck, the effects above).
+
+MODES
+- Quick play: cartoon head, no camera, no download. Starts in two seconds.
+- My face: scan with the camera or pick a photo. Faces never leave the device.
+- Solo: 30 second rush. Every KO the head bounces back tougher. Score and rank.
+- Two players: both pick a face, take turns punching the other one's head.
+  First health bar at zero loses. Rematch button.
+
+FILES
+index.html, style.css  page, HUD and screens
+main.js       boot and the frame loop
+bus.js        tiny event bus (the punch event travels on it)
+arena.js      ring, crowd, lights, camera rig
+head.js       scan to mesh, jelly physics, bruises, cartoon head
+fighter.js    body, neck, sway, fall and revive
+gloves.js     the player's gloves
+hands.js      hand tracking results to punch events
+tracking.js   loads the tracking library and data, runs the camera
+input.js      tap, drag and key punches
+game.js       rules: health, KO, rounds, turns, score
+fx.js         hit-stop, slow motion, particles, rings, comic words
+sound.js      fx.sound(name): files from assets/audio if present, else synth
+ui.js         screens, HUD, banners, loading
+
+ONE EVENT: every input emits  punch {x, y, dx, dy, strength, source}
+in head-plane units (face width = 2, strength 0.35 to 1.8).
+
+ORDER OF WORK
+1. Split the prototype into modules, photo punching works again.   (first)
+2. Arena, lights, headgear and body, gloves.
+3. Effects, KO and revive, HUD.
+4. Cartoon head, solo rush, two player turns.
+5. Camera path, loading, quality switch, sound hooks.
+6. Test, look at screenshots, fix, measure frame rate.
