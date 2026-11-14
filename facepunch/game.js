@@ -70,7 +70,7 @@ function land(p) {
   const head = target(), i = tIdx(), s = clamp(p.strength, 0.35, 1.8), now = performance.now();
   head.hit(p);
   G.combo = now - G.lastHit < 1000 ? G.combo + 1 : 1; G.lastHit = now; G.hits++;
-  const dmg = s * (G.mode === 'pvp' ? 2.1 : 5) * (1 + Math.min(G.combo, 20) * 0.02);
+  const dmg = s * (G.mode === 'pvp' ? 1.3 : 5) * (1 + Math.min(G.combo, 20) * 0.015);
   G.hp[i] = Math.max(0, G.hp[i] - dmg);
   G.score += Math.round(s * 100 * (1 + G.combo * 0.1));
   fx.impact(p.x, p.y, s, G.combo); fx.hitStop(s > 1.15 ? 0.11 : 0.045);
@@ -91,7 +91,7 @@ function land(p) {
 function ko() {
   const head = target(), i = tIdx(); G.phase = 'ko'; G.kos++;
   fx.hitStop(0.22); fx.slowmo(0.22, 1.7); fx.flash(0.6);
-  arena.zoom(1); arena.addTrauma(0.9); arena.crowdPop(40);
+  arena.zoom(1); arena.addTrauma(0.9); arena.crowdPop(14);
   ui.koFx(true); ui.banner('K.O.!', 1600, 'ko'); ui.combo(0);
   head.knockDown(); fx.dizzy(head);
   fx.sound('ko_bell'); fx.sound('voice:ko', { channel: 'vo' }); fx.sound('crowd_gasp', { gain: 0.7 }); fx.sound('brainrot_boom');

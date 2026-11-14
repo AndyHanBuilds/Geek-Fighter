@@ -128,7 +128,10 @@ $('bHands').onclick = async () => {
 // ---------- frame loop ----------
 let last = performance.now(), fpsT = 0, fpsN = 0, fps = 60, slowFor = 0;
 function frame(ts) {
-  const real = Math.min(0.05, Math.max(0, (ts - last) / 1000)); last = ts;
+  step(Math.min(0.1, Math.max(0, (ts - last) / 1000))); last = ts;
+  requestAnimationFrame(frame);
+}
+function step(real) {
   const dt = fx.tick(real);
   hands.update();
   gloves.follow(hands.fist.visible ? hands.fist : null);
@@ -143,10 +146,10 @@ function frame(ts) {
   if (fpsT >= 0.5) {
     fps = fpsN / fpsT; fpsN = 0; fpsT = 0; $('fps').textContent = Math.round(fps) + ' fps' + (arena.quality.low ? ' (low)' : '');
     if (arena.quality.mode === 'auto' && !arena.quality.low) { slowFor = fps < 31 ? slowFor + 0.5 : 0; if (slowFor >= 2.5) arena.setQuality(true); }
+    else if (arena.quality.mode === 'auto' && arena.quality.scale === 1) { slowFor = fps < 26 ? slowFor + 0.5 : 0; if (slowFor >= 5) { arena.quality.scale = 0.7; arena.resize(); } }
   }
-  requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
 // small test hooks
-window.__fp = { game, arena, snd, hands, fps: () => fps, photo: async url => { const h = await headFromUrl(url, { corner: BLUE, name: 'THE FACE' }); if (h) { lastSetup = () => game.start('solo', [h]); lastSetup(); } return !!h; }, headFromUrl, Head };
+window.__fp = { step, game, arena, snd, hands, fps: () => fps, photo: async url => { const h = await headFromUrl(url, { corner: BLUE, name: 'THE FACE' }); if (h) { lastSetup = () => game.start('solo', [h]); lastSetup(); } return !!h; }, headFromUrl, Head };

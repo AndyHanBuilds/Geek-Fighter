@@ -406,8 +406,8 @@ export class Head {
     const sway = Math.sin(this.t * 1.7) * 0.035;
     this.pivot.rotation.set(cl(s.rx, -0.42, 0.42) * 0.8 - f * 0.55, cl(s.ry, -0.5, 0.5) * 0.8 + sway, cl(s.rz, -0.4, 0.4) * 0.7 + f * 0.22);
     this.headG.position.set(s.px * 0.5, 1.7 + s.py * 0.5 + Math.sin(this.t * 2.3) * 0.02, 0.75 + s.pz);
-    this.root.position.set(this.swapDir * sw * 9, -f * 2.9, -f * 0.8 - sw * 2);
-    this.root.rotation.set(-f * 0.5, sw * this.swapDir * 5, 0);
+    this.root.position.set(this.swapDir * sw * 9, -f * 1.25, -f * 0.9 - sw * 2);
+    this.root.rotation.set(-f * 0.35, sw * this.swapDir * 5, f * 0.12);
   }
 
   dispose() {

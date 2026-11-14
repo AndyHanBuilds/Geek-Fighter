@@ -54,7 +54,7 @@ export function impact(x, y, strength, combo = 0) {
   r.life = 1; r.size = 0.45 + strength * 0.75; r.m.position.set(x, y, 0.8); r.m.visible = true;
   r.m.material.color.set(strength > 1.15 ? 0xfff0a0 : 0xffffff);
   const b = bursts.find(q => q.life <= 0) || bursts[0];
-  b.life = 1; b.size = 0.7 + strength * 0.9; b.sp.position.set(x, y, 0.9); b.sp.visible = true; b.sp.material.rotation = Math.random() * 6;
+  b.life = 1; b.size = 0.45 + strength * 0.65; b.sp.position.set(x, y, 0.9); b.sp.visible = true; b.sp.material.rotation = Math.random() * 6;
   const n = Math.round((quality.low ? 5 : 12) * (0.5 + strength));
   for (let k = 0; k < n; k++) {
     const i = sNext; sNext = (sNext + 1) % SP;
@@ -89,8 +89,8 @@ export function update(dt, real) {
     if (b.life <= 0) b.sp.visible = false;
   }
   for (let i = 0; i < SP; i++) if (sLife[i] > 0) {
-    sLife[i] -= dt; sVel[3 * i + 1] -= 14 * dt;
-    sPos[3 * i] += sVel[3 * i] * dt; sPos[3 * i + 1] += sVel[3 * i + 1] * dt; sPos[3 * i + 2] += sVel[3 * i + 2] * dt;
+    sLife[i] -= real; sVel[3 * i + 1] -= 14 * real;
+    sPos[3 * i] += sVel[3 * i] * real; sPos[3 * i + 1] += sVel[3 * i + 1] * real; sPos[3 * i + 2] += sVel[3 * i + 2] * real;
     if (sLife[i] <= 0) sPos[3 * i] = 999;
   }
   sGeo.attributes.position.needsUpdate = true;

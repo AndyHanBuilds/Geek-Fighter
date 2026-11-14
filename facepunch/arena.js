@@ -7,7 +7,7 @@ export const scene = new THREE.Scene();
 scene.background = new THREE.Color('#0d0b1e');
 scene.fog = new THREE.Fog('#0d0b1e', 12, 26);
 export const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 60);
-export const quality = { low: false, mode: 'auto' };
+export const quality = { low: false, mode: 'auto', scale: 1 };
 
 const FOV_T = Math.tan(THREE.MathUtils.degToRad(35 / 2));
 const rig = { trauma: 0, kx: 0, ky: 0, kvx: 0, kvy: 0, push: 0, pushV: 0, zoom: 0, zoomT: 0, baseZ: 7.6, t: 0, pan: 0, panV: 0 };
@@ -64,7 +64,7 @@ for (let i = 0; i < FL; i++) { flashPos[3 * i] = (Math.random() - 0.5) * 34; fla
 const flashGeo = new THREE.BufferGeometry();
 flashGeo.setAttribute('position', new THREE.BufferAttribute(flashPos, 3));
 flashGeo.setAttribute('color', new THREE.BufferAttribute(flashCol, 3));
-const flashes = new THREE.Points(flashGeo, new THREE.PointsMaterial({ size: 0.5, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+const flashes = new THREE.Points(flashGeo, new THREE.PointsMaterial({ size: 0.32, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
 scene.add(flashes);
 
 // ---- spotlight cone over the fighter
@@ -76,7 +76,7 @@ pool.rotation.x = -Math.PI / 2; pool.position.set(0, -3.49, -1.2); scene.add(poo
 
 export function resize() {
   const w = innerWidth, h = innerHeight;
-  renderer.setPixelRatio(quality.low ? Math.min(devicePixelRatio, 1) : Math.min(devicePixelRatio, 2));
+  renderer.setPixelRatio(quality.low ? Math.min(devicePixelRatio, 1) * quality.scale : Math.min(devicePixelRatio, 2));
   renderer.setSize(w, h, false);
   camera.aspect = w / h; camera.updateProjectionMatrix();
   const baseW = 2 * FOV_T * 7.6 * camera.aspect;
@@ -85,7 +85,7 @@ export function resize() {
 }
 addEventListener('resize', resize);
 
-export function setQuality(low) { quality.low = low; flashes.visible = !low; cone.visible = !low; resize(); }
+export function setQuality(low) { quality.low = low; quality.scale = 1; flashes.visible = !low; cone.visible = !low; resize(); }
 
 export const addTrauma = a => { rig.trauma = Math.min(1, rig.trauma + a); };
 export function kick(dx, dy, s) { rig.kvx += dx * s * 5; rig.kvy += dy * s * 5; rig.pushV += s * 7; }
@@ -111,10 +111,13 @@ export function update(dt) {
   rig.t += dt;
   rig.trauma = Math.max(0, rig.trauma - dt * 1.6);
   const sh = rig.trauma * rig.trauma;
-  rig.kvx += (-140 * rig.kx - 16 * rig.kvx) * dt; rig.kx += rig.kvx * dt;
-  rig.kvy += (-140 * rig.ky - 16 * rig.kvy) * dt; rig.ky += rig.kvy * dt;
-  rig.pushV += (-160 * rig.push - 15 * rig.pushV) * dt; rig.push += rig.pushV * dt;
-  rig.panV += (-90 * rig.pan - 11 * rig.panV) * dt; rig.pan += rig.panV * dt;
+  const steps = Math.max(1, Math.ceil(dt * 120)), h = dt / steps;       // small steps keep the springs stable on slow frames
+  for (let q = 0; q < steps; q++) {
+    rig.kvx += (-140 * rig.kx - 16 * rig.kvx) * h; rig.kx += rig.kvx * h;
+    rig.kvy += (-140 * rig.ky - 16 * rig.kvy) * h; rig.ky += rig.kvy * h;
+    rig.pushV += (-160 * rig.push - 15 * rig.pushV) * h; rig.push += rig.pushV * h;
+    rig.panV += (-90 * rig.pan - 11 * rig.panV) * h; rig.pan += rig.panV * h;
+  }
   rig.zoom += (rig.zoomT - rig.zoom) * Math.min(1, dt * 5);
   const n = (a, b) => Math.sin(rig.t * a + b) * Math.sin(rig.t * a * 1.7 + b * 2);
   camera.position.set(rig.kx * 0.12 + n(47, 1) * sh * 0.3 + rig.pan,
