@@ -45,15 +45,15 @@ export function detectFace(source) {
   return r.faceLandmarks && r.faceLandmarks.length ? r.faceLandmarks[0] : null;
 }
 
-export async function startCamera(video, progress = () => {}, wantFace = true) {
+export async function startCamera(video, progress = () => {}, { face = false, hand = false } = {}) {
   if (!cam.on) {
     progress('Asking for the camera', null);
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
     video.srcObject = stream; await video.play();
     cam.on = true; cam.video = video; cam.stream = stream;
   }
-  if (wantFace) await loadFace(progress); else await core(progress);
-  if (!handVideo) {
+  if (face) await loadFace(progress); else await core(progress);
+  if (hand && !handVideo) {
     handBuf ||= await fetchBuf(HAND_MODEL, f => progress('Loading the hand tracker', f));
     progress('Starting the hand tracker', null);
     handVideo = await make(lib.HandLandmarker, handBuf, { runningMode: 'VIDEO', numHands: 1 });

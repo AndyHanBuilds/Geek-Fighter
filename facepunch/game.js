@@ -29,6 +29,7 @@ export function start(mode, heads) {
   G.mode = mode; G.heads = heads; G.atk = 0; G.combo = 0; G.score = 0; G.kos = 0; G.hits = 0; G.turns = 0; G.nearKo = false;
   G.hp = [100, 100]; G.max = [100, 100]; G.clock = SOLO_TIME; G.turnT = TURN_TIME;
   heads.forEach(h => { if (!h.root.parent) arena.scene.add(h.root); });
+  after(0.05, () => heads.forEach(h => { h.spring.vy = 8; }));     // a quick wobble shows off the depth of the new head
   ui.show('hud'); ui.combo(0); gloves.setVisible(true);
   if (mode === 'solo') {
     resetHead(heads[0], true); gloves.setColor(RED);

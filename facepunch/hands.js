@@ -45,7 +45,7 @@ export function feed(L, ts) {
 }
 
 export function update() {
-  if (!state.enabled || !tracking.ready()) { fist.visible = false; return; }
+  if ((!state.enabled && !state.liveHead) || !tracking.ready()) { fist.visible = false; return; }
   const ts = performance.now(); if (ts <= lastTs) return; lastTs = ts; frameNo++;
   if (state.liveHead && frameNo % FACE_EVERY === 0) {
     const r = tracking.liveFace(ts);
@@ -54,6 +54,7 @@ export function update() {
       state.liveHead.setPose(r.faceLandmarks[0].map(p => ({ x: 1 - p.x, y: p.y, z: p.z })), v.videoWidth / v.videoHeight);
     }
   }
+  if (!state.enabled) return;
   const r = tracking.hands(ts);
   feed(r && r.landmarks && r.landmarks.length ? r.landmarks[0] : null, ts);
 }

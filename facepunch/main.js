@@ -49,7 +49,8 @@ function headFrom(source, opts) {
 async function headFromUrl(url, opts) {
   await tracking.loadFace(progress);
   progress('Building the head', null);
-  const img = new Image(); img.src = url; await img.decode();
+  const img = new Image();
+  await new Promise((ok, bad) => { img.onload = ok; img.onerror = () => bad(new Error('could not read that picture')); img.src = url; });
   const head = headFrom(img, opts); ui.loaded(); return head;
 }
 
@@ -74,13 +75,13 @@ function pickFace(title, opts) {
     };
     $('bCam').onclick = async () => {
       try {
-        await tracking.startCamera($('cam'), progress, true); ui.loaded();
+        await tracking.startCamera($('cam'), progress, { face: true }); ui.loaded();
         $('cam').hidden = false; $('bScan').hidden = false; msg('Look at the camera, then press Scan.');
       } catch (err) { ui.loaded(); msg('No camera (' + (err.name || err) + '). Pick a photo or the cartoon face.'); }
     };
     $('bScan').onclick = () => {
       const head = headFrom(tracking.snapshot(), opts);
-      if (head) { fx.sound('voice:scan_complete', { channel: 'vo' }); done(head); } else msg('No face found. Move closer and face the camera.');
+      if (head) { head.live = true; fx.sound('voice:scan_complete', { channel: 'vo' }); done(head); } else msg('No face found. Move closer and face the camera.');
     };
   });
 }
@@ -91,17 +92,21 @@ async function myFace() {
   const head = await pickFace('PICK THE FACE TO PUNCH', { corner: BLUE, skin: SKINS[0], name: 'THE FACE' });
   if (!head) return ui.show('menu');
   lastSetup = () => game.start('solo', [head]); lastSetup();
+  // a scanned face keeps copying the real one while the camera is on (solo only)
+  if (head.live && tracking.cam.on) tracking.loadLiveFace(progress).then(() => { ui.loaded(); hands.state.liveHead = head; }).catch(() => ui.loaded());
 }
 async function twoPlayers() {
   const a = await pickFace('PLAYER 1: PICK YOUR FACE', { corner: RED, skin: SKINS[0], name: 'PLAYER 1' });
   if (!a) return ui.show('menu');
   const b = await pickFace('PLAYER 2: PICK YOUR FACE', { corner: BLUE, skin: SKINS[1], name: 'PLAYER 2' });
   if (!b) { a.dispose(); return ui.show('menu'); }
+  if (!hands.state.enabled) tracking.stopCamera();      // the scans are done: the camera goes off
   lastSetup = () => game.start('pvp', [a, b]); lastSetup();
 }
 $('bQuick').onclick = quickPlay; $('bFace').onclick = myFace; $('bPvp').onclick = twoPlayers;
 $('bAgain').onclick = () => lastSetup && lastSetup();
-$('bMenu').onclick = () => game.quit();
+const leave = () => { hands.state.liveHead = null; if (!hands.state.enabled) tracking.stopCamera(); game.quit(); };
+$('bMenu').onclick = leave;
 
 // ---------- settings ----------
 const refreshMute = () => { $('bMute').classList.toggle('off', snd.settings.muted); };
@@ -109,7 +114,7 @@ $('vol').value = snd.settings.volume; refreshMute();
 $('bMute').onclick = () => { snd.setMuted(!snd.settings.muted); refreshMute(); };
 $('vol').oninput = e => { snd.setVolume(+e.target.value); if (snd.settings.muted) { snd.setMuted(false); refreshMute(); } };
 $('bGear').onclick = () => { $('panel').hidden = !$('panel').hidden; };
-$('bQuit').onclick = () => { $('panel').hidden = true; game.quit(); };
+$('bQuit').onclick = () => { $('panel').hidden = true; leave(); };
 const QUAL = ['auto', 'high', 'low'];
 $('bQual').onclick = () => {
   const m = QUAL[(QUAL.indexOf(arena.quality.mode) + 1) % 3]; arena.quality.mode = m;
@@ -117,9 +122,9 @@ $('bQual').onclick = () => {
   $('bQual').textContent = 'QUALITY: ' + m.toUpperCase();
 };
 $('bHands').onclick = async () => {
-  if (hands.state.enabled) { hands.state.enabled = false; gloves.follow(null); tracking.stopCamera(); $('bHands').textContent = 'HAND PUNCHES: OFF'; return; }
+  if (hands.state.enabled) { hands.state.enabled = false; hands.state.liveHead = null; gloves.follow(null); tracking.stopCamera(); $('bHands').textContent = 'HAND PUNCHES: OFF'; return; }
   try {
-    await tracking.startCamera($('cam'), progress, false); ui.loaded();
+    await tracking.startCamera($('cam'), progress, { hand: true }); ui.loaded();
     hands.state.enabled = true; $('bHands').textContent = 'HAND PUNCHES: ON';
     ui.hint('Punch toward the camera with one hand. Taps still work.');
   } catch (err) { ui.loaded(); $('bHands').textContent = 'NO CAMERA FOUND'; }

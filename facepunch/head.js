@@ -139,7 +139,7 @@ export class Head {
     geo.setAttribute('color', new THREE.BufferAttribute(this.colors, 3).setUsage(THREE.DynamicDrawUsage));
     geo.setIndex(new THREE.BufferAttribute(tri, 1));
     this.tex = texture;
-    const mat = new THREE.MeshStandardMaterial({ map: texture, vertexColors: true, roughness: 0.62, side: THREE.DoubleSide, emissive: 0x4a4a4a, emissiveMap: texture,
+    const mat = new THREE.MeshStandardMaterial({ map: texture, vertexColors: true, roughness: 0.62, side: THREE.DoubleSide, emissive: 0x3a3a3a, emissiveMap: texture,
       polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -12000 });   // the face always wins over the helmet behind it
     this.mesh = new THREE.Mesh(geo, mat); this.mesh.frustumCulled = false; this.headG.add(this.mesh);
   }
@@ -379,7 +379,7 @@ export class Head {
       pos[i3] = x; pos[i3 + 1] = y; pos[i3 + 2] = z;
       if (dt > 0) bruise[i] = Math.max(0, bruise[i] - dt * 0.035);
       const b = bruise[i], r = Math.max(0, bz);
-      colors[i3] = 1 - 0.18 * b + 0.25 * r; colors[i3 + 1] = 1 - 0.5 * b - 0.45 * r; colors[i3 + 2] = 1 - 0.38 * b - 0.4 * r;
+      colors[i3] = 1 - 0.15 * b + 0.3 * r; colors[i3 + 1] = 1 - 0.7 * b - 0.5 * r; colors[i3 + 2] = 1 - 0.45 * b - 0.45 * r;
     }
     this.geo.attributes.position.needsUpdate = true; this.geo.attributes.color.needsUpdate = true;
     this.geo.computeVertexNormals();
