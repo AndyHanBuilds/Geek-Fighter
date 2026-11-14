@@ -1,0 +1,756 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Scribble Jelly</title>
+<style>
+  html,body{margin:0;height:100%;background:#15122a;overflow:hidden;overscroll-behavior:none;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+  canvas{display:block;touch-action:none;position:fixed;left:0;top:0}
+  #bar{position:fixed;left:0;right:0;bottom:max(10px,env(safe-area-inset-bottom));display:flex;
+    gap:10px;justify-content:center;align-items:center;pointer-events:none;flex-wrap:wrap}
+  #bar>*{pointer-events:auto}
+  .chip{width:36px;height:36px;border-radius:50%;border:3px solid rgba(255,255,255,.35);padding:0;box-sizing:border-box}
+  .chip.on{border-color:#fff;transform:scale(1.15)}
+  #redo{font:700 15px system-ui,sans-serif;color:#15122a;background:#fff;border:0;border-radius:20px;padding:10px 18px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="bar"><span id="chips"></span><button id="redo">Draw a new one</button></div>
+<script src="https://cdn.jsdelivr.net/npm/matter-js@0.20.0/build/matter.min.js"></script>
+<script>
+(function () {
+'use strict';
+if (typeof Matter === 'undefined') {
+  document.body.insertAdjacentHTML('beforeend', '<p style="color:#fff;padding:20px">Could not load the physics library.</p>');
+  return;
+}
+var Engine = Matter.Engine, Bodies = Matter.Bodies, Body = Matter.Body, Constraint = Matter.Constraint,
+    Composite = Matter.Composite, Events = Matter.Events;
+
+var canvas = document.getElementById('c');
+var ctx = canvas.getContext('2d');
+var W = 0, H = 0, DPR = 1;
+
+/* ---------- tuning ---------- */
+var N = 24;               // nodes in the ring
+var NODE_R = 5;           // collision radius of each node
+var BODY_R = 56;          // target body radius (world units)
+var STEP = 1 / 60;        // logical step (s)
+var SUB = 3;              // physics sub-steps per logical step
+var GRAV = 2.0;
+var PRESSURE = 85;        // outward push per unit of lost area
+var RING_K = 0.55, SKIP_K = 0.25, SPOKE_K = 0.09, DAMP = 0.08;
+var LAUNCH = 25;          // pad launch speed (px per 1/60 s)
+var BIG_HIT = 8;         // impact speed that triggers slow motion
+var WORLD_BOTTOM = 950;
+var REC = 300;            // rewind buffer length in frames
+var VIEW_H = 720;         // world units visible vertically
+
+var PALETTE = ['#ff5d73', '#ffb347', '#ffe14d', '#5ee38a', '#4dc3ff', '#b58bff'];
+var color = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+
+/* ---------- audio (tiny synth, optional) ---------- */
+var actx = null;
+function audioOn() {
+  try {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+  } catch (e) { actx = null; }
+}
+function blip(f0, f1, dur, type, vol) {
+  if (!actx) return;
+  try {
+    var o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + dur);
+    g.gain.setValueAtTime(vol || 0.15, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(actx.destination);
+    o.start(t); o.stop(t + dur + 0.02);
+  } catch (e) {}
+}
+
+/* ---------- world ---------- */
+var engine = Engine.create({ positionIterations: 8, velocityIterations: 6, constraintIterations: 4 });
+engine.gravity.y = GRAV;
+var world = engine.world;
+
+var LEVEL = [
+  { type: 'rect', l: -300, t: 560, w: 860, h: 90, kind: 'plat' },
+  { type: 'rect', l: 560, t: 640, w: 180, h: 26, kind: 'pad' },
+  { type: 'rect', l: 850, t: 300, w: 460, h: 40, kind: 'plat' },
+  { type: 'slope', cx: 1500, cy: 392, w: 430, h: 30, a: 0.3, kind: 'plat' },
+  { type: 'rect', l: 1740, t: 560, w: 760, h: 90, kind: 'plat' }
+];
+var GOAL_X = 2060, GOAL_Y = 560;
+var statics = [];
+LEVEL.forEach(function (p) {
+  var b;
+  if (p.type === 'rect') b = Bodies.rectangle(p.l + p.w / 2, p.t + p.h / 2, p.w, p.h, { isStatic: true });
+  else b = Bodies.rectangle(p.cx, p.cy, p.w, p.h, { isStatic: true, angle: p.a });
+  b.friction = 0.7; b.frictionStatic = 0.6; b.restitution = 0.1;
+  b.plugin = { kind: p.kind, def: p };
+  statics.push(b);
+});
+Composite.add(world, statics);
+
+/* ---------- state ---------- */
+var mode = 'draw';          // draw | play | rewind | win
+var stroke = [];            // screen-space points
+var drawing = false;
+var hint = 'Draw a creature with one loop';
+var hintUntil = 0;
+var shape = null;           // normalised radial profile used to build/restore
+var jelly = null;           // {nodes, center, springs, A0, rest}
+var rec = [];
+var recGround = [];
+var lastSafe = null;
+var grounded = false;
+var keys = {};
+var push = 0;               // -1 / 0 / 1 from touch
+var timeScale = 1, slowUntil = 0;
+var cam = { x: 300, y: 420, z: 1 };
+var shake = 0;
+var rewindIdx = 0, rewindTarget = 0, rewindFrames = null;
+var blink = 0, nextBlink = 2;
+var squeakFlash = 0;
+var winAt = 0;
+var clock = 0;
+var stats = { launches: 0, bigHits: 0, rewinds: 0, maxSpeed: 0, minArea: 1e9, maxArea: 0, hits: [] };
+
+/* ---------- drawing -> radial profile ---------- */
+function resample(pts, n) {
+  var len = 0, i, d, out = [];
+  var cl = pts.concat([pts[0]]);
+  for (i = 1; i < cl.length; i++) len += Math.hypot(cl[i].x - cl[i - 1].x, cl[i].y - cl[i - 1].y);
+  if (len < 1) return null;
+  var step = len / n, acc = 0, k = 1, p = cl[0];
+  out.push({ x: p.x, y: p.y });
+  var cur = { x: p.x, y: p.y };
+  while (out.length < n && k < cl.length) {
+    var nx = cl[k].x, ny = cl[k].y;
+    d = Math.hypot(nx - cur.x, ny - cur.y);
+    if (acc + d >= step) {
+      var t = (step - acc) / d;
+      cur = { x: cur.x + (nx - cur.x) * t, y: cur.y + (ny - cur.y) * t };
+      out.push({ x: cur.x, y: cur.y }); acc = 0;
+    } else { acc += d; cur = { x: nx, y: ny }; k++; }
+  }
+  return out;
+}
+function perimeter(pts) {
+  var s = 0;
+  for (var i = 1; i < pts.length; i++) s += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  return s;
+}
+function buildProfile(pts) {
+  var rs = resample(pts, 80);
+  if (!rs) return null;
+  var cx = 0, cy = 0, i, j;
+  rs.forEach(function (p) { cx += p.x; cy += p.y; });
+  cx /= rs.length; cy /= rs.length;
+  var r = new Array(N), have = new Array(N);
+  for (i = 0; i < N; i++) {
+    var th = (i / N) * Math.PI * 2, dx = Math.cos(th), dy = Math.sin(th), best = -1;
+    for (j = 0; j < rs.length; j++) {
+      var a = rs[j], b = rs[(j + 1) % rs.length];
+      var ex = b.x - a.x, ey = b.y - a.y;
+      var den = dx * ey - dy * ex;
+      if (Math.abs(den) < 1e-9) continue;
+      var t = ((a.x - cx) * ey - (a.y - cy) * ex) / den;
+      var u = ((a.x - cx) * dy - (a.y - cy) * dx) / den;
+      if (t > 0 && u >= 0 && u <= 1 && t > best) best = t;
+    }
+    if (best > 0) { r[i] = best; have[i] = true; } else { r[i] = 0; have[i] = false; }
+  }
+  var any = have.some(Boolean);
+  if (!any) return null;
+  for (i = 0; i < N; i++) {
+    if (have[i]) continue;
+    var lo = 1, hi = 1;
+    while (!have[(i - lo + N) % N]) lo++;
+    while (!have[(i + hi) % N]) hi++;
+    var rl = r[(i - lo + N) % N], rh = r[(i + hi) % N];
+    r[i] = (rl * hi + rh * lo) / (lo + hi);
+  }
+  var sm = r, pass, q;
+  for (pass = 0; pass < 2; pass++) {
+    sm = sm.map(function (v, k) { return (sm[(k + N - 1) % N] + 2 * v + sm[(k + 1) % N]) / 4; });
+  }
+  // blunt thin spikes so the ring cannot fold over itself
+  for (pass = 0; pass < N; pass++) {
+    for (q = 0; q < N; q++) {
+      var lim = Math.min(sm[(q + N - 1) % N], sm[(q + 1) % N]) * 1.3;
+      if (sm[q] > lim) sm[q] = lim;
+    }
+  }
+  var mx = 0;
+  sm.forEach(function (v) { if (v > mx) mx = v; });
+  var k = BODY_R / mx;
+  // keep thin drawings from collapsing: floor the radius, then cap total length
+  var floor = BODY_R * 0.5;
+  var prof = sm.map(function (v) { return Math.max(floor, v * k); });
+  return { r: prof, color: color };
+}
+
+/* ---------- jelly body ---------- */
+function clearJelly() {
+  if (!jelly) return;
+  Composite.remove(world, jelly.parts);
+  Composite.remove(world, jelly.springs);
+  jelly = null;
+}
+function polyArea(pos) {
+  var s = 0;
+  for (var i = 0; i < pos.length; i++) {
+    var a = pos[i], b = pos[(i + 1) % pos.length];
+    s += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(s) / 2;
+}
+function makeJelly(prof, x, y, inflate) {
+  clearJelly();
+  var nodes = [], springs = [], parts = [], i;
+  var grp = Body.nextGroup(true);
+  var pos0 = [];
+  for (i = 0; i < N; i++) {
+    var th = (i / N) * Math.PI * 2;
+    pos0.push({ x: Math.cos(th) * prof.r[i], y: Math.sin(th) * prof.r[i] });
+  }
+  var A0 = polyArea(pos0);
+  for (i = 0; i < N; i++) {
+    var b = Bodies.circle(x + pos0[i].x * inflate, y + pos0[i].y * inflate, NODE_R, {
+      friction: 0.45, frictionStatic: 0.3, frictionAir: 0.012, restitution: 0.45, density: 0.0025,
+      slop: 0.02, collisionFilter: { group: grp }
+    });
+    nodes.push(b); parts.push(b);
+  }
+  var c = Bodies.circle(x, y, 4, { density: 0.004, frictionAir: 0.012, collisionFilter: { group: grp, mask: 0 } });
+  parts.push(c);
+  function link(a, b2, k, len, damp) {
+    var s = Constraint.create({ bodyA: a, bodyB: b2, stiffness: k, damping: damp, length: len });
+    springs.push(s);
+  }
+  var rest = [];
+  for (i = 0; i < N; i++) {
+    var j = (i + 1) % N, j2 = (i + 2) % N;
+    var d1 = Math.hypot(pos0[i].x - pos0[j].x, pos0[i].y - pos0[j].y);
+    var d2 = Math.hypot(pos0[i].x - pos0[j2].x, pos0[i].y - pos0[j2].y);
+    link(nodes[i], nodes[j], RING_K, d1, DAMP);
+    link(nodes[i], nodes[j2], SKIP_K, d2, DAMP);
+    link(nodes[i], c, SPOKE_K, prof.r[i], DAMP);
+    rest.push(d1);
+  }
+  Composite.add(world, parts);
+  Composite.add(world, springs);
+  jelly = { nodes: nodes, center: c, parts: parts, springs: springs, A0: A0, rest: rest, prof: prof };
+}
+function nodePositions() {
+  return jelly.nodes.map(function (b) { return b.position; });
+}
+function centroid() {
+  var x = 0, y = 0;
+  jelly.nodes.forEach(function (b) { x += b.position.x; y += b.position.y; });
+  return { x: x / N, y: y / N };
+}
+function bbox() {
+  var x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  jelly.nodes.forEach(function (b) {
+    var p = b.position;
+    if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y;
+  });
+  return { w: x1 - x0, h: y1 - y0 };
+}
+function applyForces() {
+  var pos = nodePositions(), A = polyArea(pos), i, c = centroid();
+  if (A < stats.minArea) stats.minArea = A;
+  if (A > stats.maxArea) stats.maxArea = A;
+  var ratio = Math.max(0.35, Math.min(2.5, jelly.A0 / Math.max(A, 1))) - 1;
+  for (i = 0; i < N; i++) {
+    var p = pos[i], a = pos[(i + N - 1) % N], b = pos[(i + 1) % N];
+    var tx = b.x - a.x, ty = b.y - a.y;
+    var nx = ty, ny = -tx;
+    if (nx * (p.x - c.x) + ny * (p.y - c.y) < 0) { nx = -nx; ny = -ny; }
+    var len = Math.hypot(nx, ny) || 1;
+    var body = jelly.nodes[i];
+    var mag = body.mass * PRESSURE * 0.001 * ratio * 0.0001 * len; // len is edge-pair length
+    Body.applyForce(body, p, { x: nx / len * mag * 100, y: ny / len * mag * 100 });
+  }
+  var dir = (keys.right ? 1 : 0) - (keys.left ? 1 : 0) + push;
+  dir = Math.max(-1, Math.min(1, dir));
+  if (dir) {
+    for (i = 0; i < N; i++) {
+      var nb = jelly.nodes[i];
+      Body.applyForce(nb, nb.position, { x: nb.mass * dir * 0.0008, y: 0 });
+    }
+  }
+}
+function limitSpeeds() {
+  var cap = 34;
+  var steering = keys.left || keys.right || push !== 0;
+  if (grounded && !steering) {
+    jelly.nodes.forEach(function (b) {
+      if (Math.abs(b.velocity.x) < 2.5) Body.setVelocity(b, { x: b.velocity.x * 0.93, y: b.velocity.y });
+    });
+  }
+  jelly.nodes.forEach(function (b) {
+    var v = b.velocity, s = Math.hypot(v.x, v.y);
+    if (s > cap) Body.setVelocity(b, { x: v.x / s * cap, y: v.y / s * cap });
+  });
+}
+function avgVel() {
+  var x = 0, y = 0;
+  jelly.nodes.forEach(function (b) { x += b.velocity.x; y += b.velocity.y; });
+  return { x: x / N, y: y / N };
+}
+function setAllVel(vx, vy) {
+  jelly.parts.forEach(function (b) { Body.setVelocity(b, { x: vx, y: vy }); });
+}
+function hop() {
+  if (!jelly || mode !== 'play' || !grounded) return;
+  var v = avgVel();
+  setAllVel(v.x, -13);
+  blip(260, 520, 0.14, 'sine', 0.12);
+}
+
+/* ---------- collisions ---------- */
+var impactCooldown = 0, padCool = 0;
+function kindOf(b) { return b.plugin && b.plugin.kind; }
+Events.on(engine, 'collisionStart', function (e) {
+  if (!jelly) return;
+  e.pairs.forEach(function (p) {
+    var sb = null, nb = null;
+    if (kindOf(p.bodyA)) { sb = p.bodyA; nb = p.bodyB; } else if (kindOf(p.bodyB)) { sb = p.bodyB; nb = p.bodyA; }
+    if (!sb || jelly.nodes.indexOf(nb) < 0) return;
+    var v = avgVel();
+    var hitV = Math.max(v.y, nb.velocity.y * 0.8);
+        if (kindOf(sb) === 'pad' && hitV > 1.5 && padCool <= 0 && mode === 'play') {
+      padCool = 0.7;
+      setAllVel(v.x, -LAUNCH);
+      stats.launches++;
+      slowUntil = clock + 1.25;
+      shake = 6;
+      blip(180, 900, 0.35, 'triangle', 0.2);
+    } else if (hitV > BIG_HIT && impactCooldown <= 0 && mode === 'play') {
+      stats.bigHits++;
+      impactCooldown = 0.5;
+      slowUntil = clock + 0.55;
+      shake = Math.min(8, v.y * 0.5);
+      blip(140, 60, 0.18, 'sine', 0.25);
+    } else if (v.y > 4 && mode === 'play') {
+      blip(300 + v.y * 12, 150, 0.08, 'sine', 0.08);
+    }
+  });
+});
+Events.on(engine, 'collisionActive', markGround);
+Events.on(engine, 'collisionStart', markGround);
+function markGround(e) {
+  if (!jelly) return;
+  e.pairs.forEach(function (p) {
+    var sb = kindOf(p.bodyA) ? p.bodyA : (kindOf(p.bodyB) ? p.bodyB : null);
+    var nb = sb === p.bodyA ? p.bodyB : p.bodyA;
+    if (sb && jelly.nodes.indexOf(nb) >= 0 && kindOf(sb) === 'plat') {
+      if (nb.position.y > centroid().y) grounded = true;
+    }
+  });
+}
+
+/* ---------- snapshots / rewind ---------- */
+function snap() {
+  var a = new Float32Array((N + 1) * 2), i;
+  for (i = 0; i < N; i++) { a[i * 2] = jelly.nodes[i].position.x; a[i * 2 + 1] = jelly.nodes[i].position.y; }
+  a[N * 2] = jelly.center.position.x; a[N * 2 + 1] = jelly.center.position.y;
+  return a;
+}
+function restore(a) {
+  var i;
+  for (i = 0; i < N; i++) {
+    Body.setPosition(jelly.nodes[i], { x: a[i * 2], y: a[i * 2 + 1] }, false);
+    Body.setVelocity(jelly.nodes[i], { x: 0, y: 0 });
+    Body.setAngularVelocity(jelly.nodes[i], 0);
+  }
+  Body.setPosition(jelly.center, { x: a[N * 2], y: a[N * 2 + 1] }, false);
+  Body.setVelocity(jelly.center, { x: 0, y: 0 });
+}
+function startRewind() {
+  mode = 'rewind';
+  stats.rewinds++;
+  rewindFrames = rec.slice();
+  var g = recGround.slice();
+  var last = -1, i;
+  for (i = g.length - 1; i >= 0; i--) if (g[i]) { last = i; break; }
+  rewindTarget = last >= 0 ? Math.max(0, last - 24) : 0;
+  rewindIdx = rewindFrames.length - 1;
+  timeScale = 1;
+  blip(900, 120, 0.9, 'sawtooth', 0.08);
+}
+function finishRewind() {
+  var a = (rewindFrames.length && rewindFrames[Math.max(0, rewindTarget)]) || lastSafe;
+  if (lastSafe && rewindTarget === 0 && recGround.indexOf(true) < 0) a = lastSafe;
+  restore(a);
+  rec.length = 0; recGround.length = 0;
+  mode = 'play';
+  var v = { x: 0, y: -9 };
+  setAllVel(v.x, v.y);
+  blip(300, 700, 0.2, 'sine', 0.15);
+}
+
+var badFrames = 0;
+function heal() {
+  var p = lastSafe ? snapCentre(lastSafe) : { x: 200, y: 400 };
+  stats.heals = (stats.heals || 0) + 1;
+  badFrames = 0;
+  makeJelly(shape, p.x, p.y - 40, 0.8);
+  rec.length = 0; recGround.length = 0;
+}
+
+/* ---------- spawn ---------- */
+function spawn(prof) {
+  shape = prof;
+  makeJelly(prof, 200, 330, 0.45);
+  rec.length = 0; recGround.length = 0; lastSafe = null;
+  mode = 'play';
+  cam.x = 300; cam.y = 420; cam.z = 1;
+  stats.launches = 0; stats.bigHits = 0; stats.rewinds = 0;
+  stats.minArea = 1e9; stats.maxArea = 0;
+  setHint('Hold left / right to roll. Tap the top to hop.', 4);
+  blip(140, 700, 0.3, 'sine', 0.2);
+  setTimeout(function () { blip(240, 880, 0.2, 'sine', 0.12); }, 90);
+}
+function setHint(t, secs) { hint = t; hintUntil = clock + secs; }
+
+/* ---------- input ---------- */
+function toLocal(e) {
+  var r = canvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+canvas.addEventListener('pointerdown', function (e) {
+  audioOn();
+  e.preventDefault();
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+  var p = toLocal(e);
+  if (mode === 'draw') {
+    drawing = true; stroke = [p];
+  } else if (mode === 'play') {
+    if (p.y < H * 0.4) hop();
+    else push = p.x < W / 2 ? -1 : 1;
+  } else if (mode === 'win') {
+    toDraw();
+  }
+});
+canvas.addEventListener('pointermove', function (e) {
+  if (mode === 'draw' && drawing) {
+    var p = toLocal(e), l = stroke[stroke.length - 1];
+    if (Math.hypot(p.x - l.x, p.y - l.y) > 3) stroke.push(p);
+  } else if (mode === 'play' && push !== 0) {
+    push = toLocal(e).x < W / 2 ? -1 : 1;
+  }
+});
+function endPointer() {
+  push = 0;
+  if (mode === 'draw' && drawing) {
+    drawing = false;
+    var per = perimeter(stroke);
+    if (stroke.length < 8 || per < Math.min(W, H) * 0.25) {
+      setHint('Too small. Draw something bigger!', 2); stroke = []; return;
+    }
+    var prof = buildProfile(stroke);
+    if (!prof) { setHint('Try drawing a closed loop.', 2); stroke = []; return; }
+    spawn(prof);
+  }
+}
+canvas.addEventListener('pointerup', endPointer);
+canvas.addEventListener('pointercancel', endPointer);
+window.addEventListener('keydown', function (e) {
+  audioOn();
+  var k = e.key;
+  if (k === 'ArrowLeft' || k === 'a' || k === 'A') keys.left = true;
+  else if (k === 'ArrowRight' || k === 'd' || k === 'D') keys.right = true;
+  else if (k === ' ' || k === 'ArrowUp' || k === 'w' || k === 'W') { hop(); e.preventDefault(); }
+  else if (k === 'r' || k === 'R') toDraw();
+});
+window.addEventListener('keyup', function (e) {
+  var k = e.key;
+  if (k === 'ArrowLeft' || k === 'a' || k === 'A') keys.left = false;
+  else if (k === 'ArrowRight' || k === 'd' || k === 'D') keys.right = false;
+});
+function toDraw() {
+  clearJelly();
+  mode = 'draw'; stroke = []; drawing = false; push = 0;
+  cam.x = 300; cam.y = 420; cam.z = 1; timeScale = 1; slowUntil = 0;
+  setHint('Draw a creature with one loop', 99999);
+}
+document.getElementById('redo').addEventListener('click', toDraw);
+(function buildChips() {
+  var box = document.getElementById('chips');
+  PALETTE.forEach(function (c) {
+    var b = document.createElement('button');
+    b.className = 'chip' + (c === color ? ' on' : '');
+    b.style.background = c; b.setAttribute('aria-label', 'colour');
+    b.addEventListener('click', function () {
+      color = c;
+      Array.prototype.forEach.call(box.children, function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      if (shape && mode !== 'draw') shape.color = c;
+    });
+    box.appendChild(b);
+  });
+})();
+
+/* ---------- main step ---------- */
+function stepPhysics(dt) {
+  var ms = dt * 1000 * timeScale / SUB, i;
+  for (i = 0; i < SUB; i++) {
+    applyForces();
+    Engine.update(engine, ms);
+    limitSpeeds();
+  }
+}
+function update(dtWall) {
+  clock += dtWall;
+  if (impactCooldown > 0) impactCooldown -= dtWall;
+  if (padCool > 0) padCool -= dtWall;
+  blink -= dtWall;
+  nextBlink -= dtWall;
+  if (nextBlink <= 0) { blink = 0.12; nextBlink = 1.5 + Math.random() * 3; }
+  shake *= Math.pow(0.002, dtWall);
+  var targetTS = clock < slowUntil ? 0.28 : 1;
+  timeScale += (targetTS - timeScale) * Math.min(1, dtWall * (targetTS < timeScale ? 14 : 5));
+  if (mode === 'play' && jelly) {
+    grounded = false;
+    stepPhysics(STEP);
+    var c = centroid();
+    var sp = Math.hypot(avgVel().x, avgVel().y);
+    if (sp > stats.maxSpeed) stats.maxSpeed = sp;
+    rec.push(snap()); recGround.push(grounded);
+    if (rec.length > REC) { rec.shift(); recGround.shift(); }
+    if (grounded && c.y < 700) lastSafe = snap();
+    var ar = polyArea(nodePositions()) / jelly.A0;
+    badFrames = (ar < 0.3 || ar > 3 || Math.abs(c.y) > 2500) ? badFrames + 1 : 0;
+    if (badFrames > 30) heal();
+    else if (c.y > WORLD_BOTTOM) startRewind();
+    if (c.x > GOAL_X - 40 && c.y < GOAL_Y && grounded) { mode = 'win'; winAt = clock; blip(400, 1200, 0.5, 'triangle', 0.2); }
+  } else if (mode === 'rewind') {
+    rewindIdx -= 5;
+    if (rewindIdx <= rewindTarget) { rewindIdx = rewindTarget; finishRewind(); }
+  } else if (mode === 'win' && jelly) {
+    stepPhysics(STEP);
+  }
+  // camera
+  var fx = cam.x, fy = cam.y, fz = 1;
+  if (jelly && mode !== 'draw') {
+    var cc = mode === 'rewind' && rewindFrames ? snapCentre(rewindFrames[Math.max(0, rewindIdx)]) : centroid();
+    fx = cc.x + 120; fy = Math.min(480, Math.max(260, cc.y - 40));
+    fz = timeScale < 0.6 ? 1.3 : 1;
+  }
+  var k = Math.min(1, dtWall * 4);
+  cam.x += (fx - cam.x) * k; cam.y += (fy - cam.y) * k; cam.z += (fz - cam.z) * Math.min(1, dtWall * 5);
+}
+function snapCentre(a) {
+  var x = 0, y = 0;
+  for (var i = 0; i < N; i++) { x += a[i * 2]; y += a[i * 2 + 1]; }
+  return { x: x / N, y: y / N };
+}
+
+/* ---------- rendering ---------- */
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+}
+window.addEventListener('resize', resize);
+resize();
+
+function shade(hex, f) {
+  var n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  r = Math.max(0, Math.min(255, Math.round(r * f))); g = Math.max(0, Math.min(255, Math.round(g * f))); b = Math.max(0, Math.min(255, Math.round(b * f)));
+  return 'rgb(' + r + ',' + g + ',' + b + ')';
+}
+function blobPath(pts) {
+  var n = pts.length, i;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (i = 0; i < n; i++) {
+    var p0 = pts[(i + n - 1) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n];
+    ctx.bezierCurveTo(p1.x + (p2.x - p0.x) / 6, p1.y + (p2.y - p0.y) / 6,
+                      p2.x - (p3.x - p1.x) / 6, p2.y - (p3.y - p1.y) / 6, p2.x, p2.y);
+  }
+  ctx.closePath();
+}
+function drawLevel() {
+  var i;
+  // far hills
+  ctx.fillStyle = '#211c3d';
+  for (i = -2; i < 12; i++) {
+    ctx.beginPath(); ctx.ellipse(i * 330 + cam.x * 0.0, 760, 260, 190, 0, Math.PI, 0); ctx.fill();
+  }
+  statics.forEach(function (b) {
+    var d = b.plugin.def, kind = b.plugin.kind;
+    ctx.save();
+    if (d.type === 'slope') { ctx.translate(d.cx, d.cy); ctx.rotate(d.a); ctx.translate(-d.w / 2, -d.h / 2); }
+    else ctx.translate(d.l, d.t);
+    if (kind === 'pad') {
+      ctx.fillStyle = '#ff7ac8';
+      roundRect(0, 0, d.w, d.h, 12); ctx.fill();
+      ctx.fillStyle = '#ffd1ee'; roundRect(8, 4, d.w - 16, 6, 3); ctx.fill();
+      ctx.fillStyle = '#3a2f66'; ctx.fillRect(d.w / 2 - 6, d.h, 12, 400);
+    } else {
+      ctx.fillStyle = '#3a2f66'; roundRect(0, 0, d.w, d.h, 10); ctx.fill();
+      ctx.fillStyle = '#6dd6a2'; roundRect(0, 0, d.w, 12, 6); ctx.fill();
+    }
+    ctx.restore();
+  });
+  // goal
+  ctx.save(); ctx.translate(GOAL_X, GOAL_Y);
+  ctx.fillStyle = '#ffe14d'; ctx.fillRect(-5, -120, 10, 120);
+  ctx.beginPath(); ctx.moveTo(5, -120); ctx.lineTo(70, -100); ctx.lineTo(5, -80); ctx.closePath(); ctx.fill();
+  if (shape) {
+    ctx.translate(36, -100); ctx.scale(0.1, 0.1);
+    var pr = shape.r.map(function (r, i) { var th = i / N * Math.PI * 2; return { x: Math.cos(th) * r, y: Math.sin(th) * r }; });
+    blobPath(pr); ctx.fillStyle = shape.color; ctx.fill();
+  }
+  ctx.restore();
+}
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function drawJelly(pts, vel, mood) {
+  var col = shape ? shape.color : color;
+  blobPath(pts);
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = NODE_R * 2 + 5; ctx.strokeStyle = shade(col, 0.45); ctx.stroke();
+  ctx.lineWidth = NODE_R * 2; ctx.strokeStyle = col; ctx.stroke();
+  ctx.fillStyle = col; ctx.fill();
+  // soft highlight
+  var c = { x: 0, y: 0 }, i;
+  pts.forEach(function (p) { c.x += p.x; c.y += p.y; });
+  c.x /= pts.length; c.y /= pts.length;
+  var area = polyArea(pts), size = Math.sqrt(area / Math.PI);
+  var g = ctx.createRadialGradient(c.x - size * 0.3, c.y - size * 0.45, 2, c.x, c.y, size * 1.15);
+  g.addColorStop(0, 'rgba(255,255,255,0.45)'); g.addColorStop(0.5, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(0,0,0,0.22)');
+  blobPath(pts); ctx.fillStyle = g; ctx.fill();
+  // eyes
+  var sq = Math.max(0.5, Math.min(1.5, jelly ? jelly.A0 / Math.max(area, 1) : 1));
+  var er = size * 0.2 * (mood === 'scared' ? 1.25 : 1), ex = size * 0.32, ey = c.y - size * 0.12;
+  var lx = Math.max(-1, Math.min(1, vel.x / 8)), ly = Math.max(-1, Math.min(1, vel.y / 12));
+  var closed = blink > 0;
+  [-1, 1].forEach(function (s) {
+    var x = c.x + s * ex;
+    ctx.fillStyle = '#fff';
+    if (closed) {
+      ctx.fillRect(x - er, ey - 1.5, er * 2, 3);
+    } else {
+      ctx.beginPath(); ctx.ellipse(x, ey, er, er * 1.12, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#1a1230';
+      ctx.beginPath(); ctx.arc(x + lx * er * 0.45, ey + ly * er * 0.45, er * 0.52, 0, 7); ctx.fill();
+    }
+  });
+  // mouth
+  ctx.strokeStyle = '#1a1230'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.beginPath();
+  var my = c.y + size * 0.3;
+  if (mood === 'scared') { ctx.ellipse(c.x, my, size * 0.1, size * 0.14, 0, 0, 7); }
+  else { ctx.moveTo(c.x - size * 0.2, my - 2); ctx.quadraticCurveTo(c.x, my + size * (0.12 + 0.2 * Math.max(0, Math.min(1, 1.2 - sq))), c.x + size * 0.2, my - 2); }
+  ctx.stroke();
+}
+function glitch() {
+  var cw = canvas.width, ch = canvas.height, i;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  for (i = 0; i < 7; i++) {
+    var y = Math.random() * ch, h = 4 + Math.random() * ch * 0.06, dx = (Math.random() - 0.5) * cw * 0.08;
+    ctx.drawImage(canvas, 0, y, cw, h, dx, y, cw, h);
+  }
+  ctx.fillStyle = 'rgba(70,120,255,0.16)'; ctx.fillRect(0, 0, cw, ch);
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  for (i = 0; i < ch; i += 6 * DPR) ctx.fillRect(0, i, cw, 2 * DPR);
+  ctx.fillStyle = '#fff'; ctx.font = '700 ' + Math.round(26 * DPR) + 'px system-ui,sans-serif';
+  ctx.textAlign = 'left';
+  var left = Math.max(0, rewindIdx - rewindTarget);
+  ctx.fillText('◀◀ REWIND  -' + (left / 60).toFixed(1) + 's', 20 * DPR, 44 * DPR);
+}
+function render() {
+  var cw = canvas.width, ch = canvas.height;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  var sky = ctx.createLinearGradient(0, 0, 0, ch);
+  sky.addColorStop(0, '#2b2466'); sky.addColorStop(1, '#15122a');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, cw, ch);
+  var sc = (ch / VIEW_H) * cam.z;
+  var shx = (Math.random() - 0.5) * shake, shy = (Math.random() - 0.5) * shake;
+  ctx.setTransform(sc, 0, 0, sc, cw / 2 - cam.x * sc + shx * DPR, ch / 2 - cam.y * sc + shy * DPR);
+  drawLevel();
+  if (jelly && mode !== 'draw') {
+    var pts, vel, mood = 'happy';
+    if (mode === 'rewind') {
+      var f = rewindFrames[Math.max(0, rewindIdx)];
+      pts = []; for (var i = 0; i < N; i++) pts.push({ x: f[i * 2], y: f[i * 2 + 1] });
+      vel = { x: 0, y: 6 }; mood = 'scared';
+    } else {
+      pts = nodePositions(); vel = avgVel();
+      if (vel.y > 8 || jelly.center.position.y > 700) mood = 'scared';
+    }
+    drawJelly(pts, vel, mood);
+  }
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  // draw mode overlay
+  if (mode === 'draw') {
+    ctx.fillStyle = 'rgba(21,18,42,0.55)'; ctx.fillRect(0, 0, W, H);
+    ctx.setLineDash([10, 10]); ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 3;
+    var s = Math.min(W, H) * 0.5;
+    roundRect(W / 2 - s * 0.6, H / 2 - s * 0.55, s * 1.2, s * 1.1, 30); ctx.stroke(); ctx.setLineDash([]);
+    if (stroke.length > 1) {
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.lineWidth = 7; ctx.strokeStyle = color;
+      ctx.beginPath(); ctx.moveTo(stroke[0].x, stroke[0].y);
+      for (var j = 1; j < stroke.length; j++) ctx.lineTo(stroke[j].x, stroke[j].y);
+      if (!drawing) ctx.closePath();
+      ctx.stroke();
+    }
+  }
+  // text
+  ctx.textAlign = 'center';
+  if (mode === 'win') {
+    ctx.fillStyle = '#fff'; ctx.font = '800 ' + Math.round(Math.min(W / 10, 54)) + 'px system-ui,sans-serif';
+    ctx.fillText('BOUNCED BACK!', W / 2, H * 0.3);
+    ctx.font = '600 18px system-ui,sans-serif'; ctx.fillText('tap to draw another', W / 2, H * 0.3 + 34);
+  } else if (clock < hintUntil) {
+    ctx.fillStyle = '#fff'; ctx.font = '700 ' + Math.round(Math.min(W / 16, 26)) + 'px system-ui,sans-serif';
+    ctx.fillText(hint, W / 2, mode === 'draw' ? H * 0.16 : 52);
+  }
+  if (mode === 'rewind') glitch();
+}
+
+var last = 0, fpsAcc = 0, fpsN = 0, fps = 0;
+function frame(t) {
+  var dt = Math.min(0.05, (t - last) / 1000 || 0.016);
+  last = t;
+  fpsAcc += dt; fpsN++;
+  if (fpsAcc > 1) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
+  update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.__jelly = {
+  get mode() { return mode; },
+  get fps() { return fps; },
+  get stats() { return stats; },
+  get info() {
+    if (!jelly) return null;
+    var c = centroid(), v = avgVel(), bb = bbox();
+    return { w: bb.w, h: bb.h, x: c.x, y: c.y, vx: v.x, vy: v.y, area: polyArea(nodePositions()), A0: jelly.A0, grounded: grounded, ts: timeScale };
+  },
+  keys: keys,
+  press: function (k, d) { keys[k] = d; }
+};
+})();
+</script>
+</body>
+</html>
