@@ -74,7 +74,7 @@ function land(p) {
   const dmg = s * (G.mode === 'pvp' ? 1.3 : 5) * (1 + Math.min(G.combo, 20) * 0.015);
   G.hp[i] = Math.max(0, G.hp[i] - dmg);
   G.score += Math.round(s * 100 * (1 + G.combo * 0.1));
-  fx.impact(p.x, p.y, s, G.combo); fx.hitStop(s > 1.15 ? 0.11 : 0.045);
+  fx.impact(p.x, p.y, s, G.combo, Math.round(s * 100)); fx.hitStop(s > 1.15 ? 0.11 : 0.045);
   arena.addTrauma(0.16 + s * 0.24); arena.kick((p.dx || 0) - p.x * 0.3, p.dy || 0, s);
   if (s > 1.15) arena.crowdPop(8);
   // sound: the punch sits under the voice; one hit in ten swaps the ouch for a rare line
@@ -109,7 +109,7 @@ function ko() {
       fx.sound('crowd_cheer'); fx.sound('brainrot_airhorn'); arena.crowdPop(40);
     });
     after(3.5, () => revive(head));
-    after(5.3, () => { G.phase = 'over'; ui.over(`PLAYER ${winner + 1} WINS!`, `${G.heads[i].name} got flattened, then bounced right back.\n${G.hits} punches landed in ${G.turns + 1} turns.`); });
+    after(5.3, () => { G.phase = 'over'; ui.over(`PLAYER ${winner + 1} WINS!`, `${G.heads[i].name} got flattened, then bounced right back.\n${G.hits} ${G.hits === 1 ? 'punch' : 'punches'} landed in ${G.turns + 1} ${G.turns + 1 === 1 ? 'turn' : 'turns'}.`); });
   }
 }
 function revive(head) {

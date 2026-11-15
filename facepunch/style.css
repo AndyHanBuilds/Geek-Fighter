@@ -55,7 +55,7 @@ h2 { font: 400 clamp(38px, 9vw, 72px)/1 var(--comic); margin: 0 0 12px; color: v
 #banner.bb { color: #7dffb0; text-shadow: 0 6px 0 #0a8a4a, 0 12px 0 #14102b, 0 0 40px #3f8; }
 
 #words { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.word { position: absolute; font: 400 clamp(34px, 9vw, 64px) var(--comic); color: #fff; letter-spacing: 2px; text-shadow: 0 4px 0 var(--red), 0 7px 0 #14102b; transform: translate(-50%, -50%) rotate(var(--rot)) scale(var(--sc)); animation: pop .7s ease-out forwards; white-space: nowrap; }
+.word { position: absolute; font: 400 clamp(34px, 9vw, 64px) var(--comic); color: #fff; letter-spacing: 2px; text-shadow: 0 2px 6px #000a; transform: translate(-50%, -50%) rotate(var(--rot)) scale(var(--sc)); animation: pop .7s ease-out forwards; white-space: nowrap; }
 @keyframes pop {
   0% { transform: translate(-50%, -50%) rotate(var(--rot)) scale(.2); opacity: 1; }
   18% { transform: translate(-50%, -60%) rotate(var(--rot)) scale(calc(var(--sc) * 1.25)); }
