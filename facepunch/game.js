@@ -18,7 +18,7 @@ const target = () => G.heads[tIdx()];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 function resetHead(h, visible) {
-  h.bruise.fill(0); h.off.fill(0); h.vel.fill(0); h.fallT = 0; h.fallP = 0; h.fallV = 0; h.bumpT = 0; h.bumpP = 0; h.bumpTimer = 0;
+  h.resetDents(); h.bruise.fill(0); h.off.fill(0); h.vel.fill(0); h.fallT = 0; h.fallP = 0; h.fallV = 0; h.bumpT = 0; h.bumpP = 0; h.bumpTimer = 0;
   h.setIdle('neutral'); h.setExpr('neutral', 0);
   h.swap = visible ? 0 : 1; h.swapT = h.swap; h.root.visible = visible;
   h.onPop = () => fx.sound('cartoon_boing', { gain: 0.7, rate: 1.5, channel: 'boing' });
@@ -70,9 +70,9 @@ function whiff(p) {
 function land(p) {
   if (G.phase !== 'fight') return;
   const head = target(), i = tIdx(), s = clamp(p.strength, 0.35, 1.8), now = performance.now();
-  head.hit(p);
   G.combo = now - G.lastHit < 1000 ? G.combo + 1 : 1; G.lastHit = now; G.hits++;
   const dmg = s * (G.mode === 'pvp' ? 1.3 : 5) * (1 + Math.min(G.combo, 20) * 0.015);
+  head.hit({ ...p, dmg });
   G.hp[i] = Math.max(0, G.hp[i] - dmg);
   G.score += Math.round(s * 100 * (1 + G.combo * 0.1));
   fx.impact(p.x, p.y, s, G.combo, Math.round(s * 100)); fx.hitStop(s > 1.15 ? 0.11 : 0.045);

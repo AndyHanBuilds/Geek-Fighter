@@ -71,6 +71,7 @@ export class Head {
     this.swap = 0; this.swapT = 0; this.swapDir = 1;     // 0 on stage, 1 off stage
     this.bumpP = 0; this.bumpV = 0; this.bumpT = 0; this.bumpTimer = 0;
     this.reliefAmt = 0; this.reliefT = 0;
+    this.dentK = 1; this._rel = null; this.hits = []; this._skullDirty = false;
     this.turn = [0, 0, 0]; this.turnS = [0, 0, 0]; this.mirrorAt = -1e9;     // live head turn, copied from the camera
     this.t = Math.random() * 10; this.live = false; this.kind = 'photo';
   }
@@ -314,6 +315,11 @@ export class Head {
     const sets = Array.from({ length: N }, () => new Set()), tri = geo.index.array;
     for (let t = 0; t < tri.length; t += 3) { const [a, b, c] = [tri[t], tri[t + 1], tri[t + 2]]; sets[a].add(b).add(c); sets[b].add(a).add(c); sets[c].add(a).add(b); }
     this.nbr = sets.map(s => Array.from(s));
+    // rest normals (dents push inward along these) and the per-vertex dent buffer
+    geo.attributes.position.array.set(this.base.subarray(0, N * 3)); geo.computeVertexNormals();
+    this.nrm = Float32Array.from(geo.attributes.normal.array);
+    this.dent = new Float32Array(N); this.dentCap = new Float32Array(N);
+    for (let i = 0; i < N; i++) this.dentCap[i] = 0.2 + 0.26 * this.soft[i];
     // skin: the photo carries the colour, the lights add shape and a soft sheen
     this.skinMat = new THREE.MeshStandardMaterial({ map: this.tex, vertexColors: true, transparent: true, roughness: 0.58, metalness: 0 });
     this.mesh = new THREE.Mesh(geo, this.skinMat); this.mesh.frustumCulled = false; this.mesh.renderOrder = 3;
@@ -418,6 +424,13 @@ export class Head {
     }
     sg.setAttribute('color', new THREE.BufferAttribute(col, 3)); sg.computeVertexNormals();
     this.headG.add(new THREE.Mesh(sg, new THREE.MeshStandardMaterial({ vertexColors: true, map: hairTexture(), roughness: 0.82 })));
+    // the front of the skull sinks with the dents so it never shows through the skin
+    this.skullGeo = sg; this.skullRest = Float32Array.from(p.array); this.skullNear = [];
+    for (let i = 0; i < p.count; i++) {
+      const x = this.skullRest[3 * i], y = this.skullRest[3 * i + 1]; let nb = -1, bd = 0.09;
+      for (let j = 0; j < NL; j++) { const d2 = (b[3 * j] - x) ** 2 + (b[3 * j + 1] - y) ** 2; if (d2 < bd) { bd = d2; nb = j; } }
+      if (nb >= 0 && this.skullRest[3 * i + 2] > b[3 * nb + 2] - 0.5) this.skullNear.push(i, nb);
+    }
     // ears take the colour of whatever the picture shows there (skin, or the hair that covers them)
     for (const s of [-1, 1]) {
       const e = s < 0 ? 234 : 454, ex = b[3 * e] + s * 0.1, ey = k.earY;
@@ -439,6 +452,13 @@ export class Head {
     const collar = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.09, 10, 32), shirt); collar.rotation.x = Math.PI / 2 - 0.22; collar.position.set(0, neckY - 0.78, neckZ + 0.05); this.root.add(collar);
     this.pivot.position.set(0, neckY - 0.2, neckZ); this.headG.position.set(0, -(neckY - 0.2), -neckZ);
     this._pv = [neckY - 0.2, neckZ];
+  }
+
+  _skullFollow() {
+    this._skullDirty = false;
+    const p = this.skullGeo.attributes.position.array, r = this.skullRest, L = this.skullNear, dent = this.dent, dk = this.dentK;
+    for (let q = 0; q < L.length; q += 2) { const i = L[q]; p[3 * i + 2] = r[3 * i + 2] - dent[L[q + 1]] * dk * 1.15; }
+    this.skullGeo.attributes.position.needsUpdate = true; this.skullGeo.computeVertexNormals();
   }
 
   // creases sit in shade: darken vertices that lie below their neighbours
@@ -478,9 +498,10 @@ export class Head {
   setIdle(name) { this.idle = name; if (this.exprHold <= 0) this.wT = EXPR[name]; }
 
   // one blow; x, y in head-plane units
-  hit({ x, y, dx = 0, dy = 0, strength = 1 }) {
+  hit({ x, y, dx = 0, dy = 0, strength = 1, dmg }) {
     strength = clamp(strength, 0.35, 1.8);
     const { N, base, off, vel, bruise, soft, pin } = this, sig = 0.5, s = this.spring;
+    this._dentHit(x, y, strength, dmg === undefined ? strength * 5 : dmg);
     for (let i = 0; i < N; i++) {
       const i3 = 3 * i, d2 = (base[i3] + off[i3] - x) ** 2 + (base[i3 + 1] + off[i3 + 1] - y) ** 2;
       const w = Math.exp(-d2 / (sig * sig)) * pin[i], lag = soft[i] * strength * pin[i];
@@ -497,8 +518,31 @@ export class Head {
     this.setExpr(strength > 1.15 ? 'heavy' : 'hit', 0.26 + 0.2 * strength);
   }
 
+  // a permanent dent: inward along the normal with a smooth falloff, softer and wider on cheeks and lips,
+  // narrower and stiffer on nose and forehead; depths add up to a cap so the skin never folds through
+  _dentHit(x, y, strength, dmg) {
+    const { N, base, soft, pin, dent, dentCap, nrm } = this;
+    let nb = -1, bd = 1e9;
+    for (let i = 0; i < N; i++) { if (pin[i] < 0.5) continue; const d2 = (base[3 * i] - x) ** 2 + (base[3 * i + 1] - y) ** 2; if (d2 < bd) { bd = d2; nb = i; } }
+    if (nb < 0) return;
+    if (this._rel) this._clearDents();
+    const sh = soft[nb], sig = 0.25 + 0.2 * sh, depth = (0.1 + 0.1 * strength) * (0.7 + 0.6 * sh), inv = 1 / (sig * sig);
+    for (let i = 0; i < N; i++) {
+      const d2 = (base[3 * i] - base[3 * nb]) ** 2 + (base[3 * i + 1] - base[3 * nb + 1]) ** 2, w = Math.exp(-d2 * inv) * pin[i];
+      if (w < 0.01) continue;
+      dent[i] = Math.min(dent[i] + depth * w, dentCap[i]);
+    }
+    this.hits.push({ x: base[3 * nb], y: base[3 * nb + 1], z: base[3 * nb + 2], nx: nrm[3 * nb], ny: nrm[3 * nb + 1], nz: nrm[3 * nb + 2], strength, dmg, soft: sh });
+    this.dentK = 1; this._skullDirty = true;
+  }
+  _clearDents() { this.dent.fill(0); this.hits = []; this.dentK = 1; this._rel = null; this._skullDirty = true; }
+  // new head or new turn: forget every dent and recorded hit
+  resetDents() { this._clearDents(); }
+  // ease every dent back out over dur seconds, after delay
+  dentRelease(delay = 0, dur = 0.5) { this._rel = { t: -delay, dur }; }
+
   knockDown() { this.fallT = 1; this.fallV += 3; this.setExpr('ko', 99); this.spring.vx -= 8; }
-  bounceBack() { this.fallT = 0; this.fallV -= 9; this.setExpr('grit', 1.6); this.bruise.fill(0); this.spring.vpy += 6; }
+  bounceBack() { this.fallT = 0; this.fallV -= 9; this.setExpr('grit', 1.6); this.bruise.fill(0); this.spring.vpy += 6; this._clearDents(); }
 
   // the bruises swell up for a second, then spring back; returns seconds until smooth again
   booboo() {
@@ -556,6 +600,10 @@ export class Head {
     }
     if (this.bumpTimer > 0) { this.bumpTimer -= dt; if (this.bumpTimer <= 0) { this.bumpT = 0; this.bumpV -= 12; this.bruise.fill(0); this.onPop && this.onPop(); } }
     if (this.bumpT === 0 && Math.abs(this.bumpP) < 0.02 && Math.abs(this.bumpV) < 0.3) this.bumpP = 0;
+    if (this._rel) {
+      this._rel.t += dt; const k = clamp(this._rel.t / this._rel.dur, 0, 1); this.dentK = 1 - k * k * (3 - 2 * k); this._skullDirty = true;
+      if (this._rel.t >= this._rel.dur) this._clearDents();
+    }
     if (this.exprHold > 0) { this.exprHold -= dt; if (this.exprHold <= 0) this.wT = EXPR[this.idle]; }
     const e = 1 - Math.exp(-dt * 20);
     for (const k of KEYS) this.w[k] += (this.wT[k] - this.w[k]) * e;
@@ -564,19 +612,20 @@ export class Head {
     if (this.swapT === 1 && this.swap > 0.97) this.root.visible = false;
 
     const w = this.w, bp = this.bumpP, ra = this.reliefAmt, pos = this.geo.attributes.position.array;
-    const { rJaw, rLid, rLip, rBrow, rGrit, rPuff } = this;
+    const { rJaw, rLid, rLip, rBrow, rGrit, rPuff, dent, nrm } = this, dk = this.dentK;
     for (let i = 0; i < N; i++) {
-      const i3 = 3 * i, bz = bump[i] * bp, j = rJaw[i], b = bruise[i];
-      pos[i3] = base[i3] + off[i3] + 0.07 * w.puff * rPuff[i] * Math.sign(base[i3]) + this.skew * 0.1 * w.jaw * j;
-      pos[i3 + 1] = base[i3 + 1] + off[i3 + 1] - 0.3 * w.jaw * j + w.squint * rLid[i] + 0.07 * w.brow * rBrow[i] + w.grit * rGrit[i] + 0.04 * w.jaw * rLip[i];
-      pos[i3 + 2] = base[i3 + 2] + off[i3 + 2] + relief[i] * ra + bz * 0.2 + b * 0.05 * pin[i] + 0.16 * w.puff * rPuff[i] - 0.05 * w.jaw * j;
+      const i3 = 3 * i, bz = bump[i] * bp, j = rJaw[i], b = bruise[i], dd = dent[i] * dk;
+      pos[i3] = base[i3] + off[i3] - dd * nrm[i3] + 0.07 * w.puff * rPuff[i] * Math.sign(base[i3]) + this.skew * 0.1 * w.jaw * j;
+      pos[i3 + 1] = base[i3 + 1] + off[i3 + 1] - dd * nrm[i3 + 1] - 0.3 * w.jaw * j + w.squint * rLid[i] + 0.07 * w.brow * rBrow[i] + w.grit * rGrit[i] + 0.04 * w.jaw * rLip[i];
+      pos[i3 + 2] = base[i3 + 2] + off[i3 + 2] - dd * nrm[i3 + 2] + relief[i] * ra + bz * 0.2 + b * 0.05 * pin[i] + 0.16 * w.puff * rPuff[i] - 0.05 * w.jaw * j;
       if (dt > 0) bruise[i] = Math.max(0, b - dt * 0.03);
       // bruises: a dull red-purple under the skin, deeper where it swells
       const m = Math.min(1, b * 0.9 + Math.max(0, bz) * 0.7), a = ao[i], c4 = 4 * i;
-      colors[c4] = a * (1 - 0.2 * m); colors[c4 + 1] = a * (1 - 0.52 * m); colors[c4 + 2] = a * (1 - 0.36 * m); colors[c4 + 3] = alpha[i];
+      const dsh = 1 - Math.min(0.45, dd * 2.2); colors[c4] = a * dsh * (1 - 0.2 * m); colors[c4 + 1] = a * dsh * (1 - 0.52 * m); colors[c4 + 2] = a * dsh * (1 - 0.36 * m); colors[c4 + 3] = alpha[i];
     }
     this.geo.attributes.position.needsUpdate = true; this.geo.attributes.color.needsUpdate = true;
     this.geo.computeVertexNormals();
+    if (this._skullDirty) this._skullFollow();
 
     // eyes: the socket follows the head, never the lids; the iris crosses on a heavy blow and rolls on a KO
     const show = clamp((w.dizzy + w.cross) * 5, 0, 1);
