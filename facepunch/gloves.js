@@ -1,10 +1,10 @@
-// The player's two cartoon boxing gloves. They rest at the bottom of the
+// The player's two leather boxing gloves. They rest at the bottom of the
 // screen (or follow a tracked hand) and lunge at the face on every punch.
 import * as THREE from 'three';
 import { scene, view } from './arena.js';
 
 const std = (color, rough) => new THREE.MeshStandardMaterial({ color, roughness: rough });
-const gloveMat = std('#e23b4a', 0.3), cuffMat = std('#f6f6fa', 0.6), laceMat = std('#1b1b2a', 0.6);
+const gloveMat = std('#7a1418', 0.45), cuffMat = std('#2a2022', 0.7), laceMat = std('#141016', 0.6);
 
 function makeGlove(side) {
   const g = new THREE.Group(), inner = new THREE.Group(); g.add(inner);

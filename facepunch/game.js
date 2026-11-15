@@ -7,6 +7,7 @@ import * as gloves from './gloves.js';
 import * as ui from './ui.js';
 
 const RED = '#e23b4a', BLUE = '#2f7bff';
+const GL_RED = '#7a1418', GL_BLUE = '#1c3a7c';
 const SOLO_TIME = 40, TURN_TIME = 6;
 export const G = { mode: null, phase: 'menu', heads: [], hp: [100, 100], max: [100, 100], atk: 0, combo: 0, lastHit: 0, lastPunch: 0, lastOuch: 0, score: 0, kos: 0, hits: 0, clock: 0, turnT: 0, nearKo: false, turns: 0 };
 
@@ -32,12 +33,12 @@ export function start(mode, heads) {
   after(0.05, () => heads.forEach(h => { h.spring.vy = 8; }));     // a quick wobble shows off the depth of the new head
   ui.show('hud'); ui.combo(0); gloves.setVisible(true);
   if (mode === 'solo') {
-    resetHead(heads[0], true); gloves.setColor(RED);
+    resetHead(heads[0], true); gloves.setColor(GL_RED);
     ui.names(heads[0].name, ''); ui.bar(0, 1); ui.active(-1); ui.turn('SCORE 0');
     ui.hint('Tap the face to punch. Drag fast for a heavy hit.');
     intro('ROUND 1', 'PUNCH!');
   } else {
-    resetHead(heads[0], false); resetHead(heads[1], true); gloves.setColor(RED);
+    resetHead(heads[0], false); resetHead(heads[1], true); gloves.setColor(GL_RED);
     ui.names(heads[0].name, heads[1].name); ui.bar(0, 1); ui.bar(1, 1); ui.active(0); ui.clock('VS');
     ui.hint('Take turns. Punch the other player\'s face. First face flattened loses.');
     intro('PLAYER 1 PUNCHES FIRST', 'PUNCH!');
@@ -128,7 +129,7 @@ function endTurn() {
     old.swapOut(-1); arena.whip(-1);
     fx.sound('brainrot_record_scratch'); fx.sound('swing'); fx.sound('voice:turn_swap', { channel: 'vo' });
     G.atk = 1 - G.atk; G.nearKo = false;
-    const next = target(); next.swapIn(1); gloves.setColor(G.atk === 0 ? RED : BLUE); ui.active(G.atk);
+    const next = target(); next.swapIn(1); gloves.setColor(G.atk === 0 ? GL_RED : GL_BLUE); ui.active(G.atk);
     after(0.75, () => { ui.banner(`PLAYER ${G.atk + 1}: PUNCH!`, 900); G.turnT = TURN_TIME; G.phase = 'fight'; });
   });
 }

@@ -14,14 +14,14 @@ const rig = { trauma: 0, kx: 0, ky: 0, kvx: 0, kvy: 0, push: 0, pushV: 0, zoom: 
 export const view = { w: 4, h: 4 };
 
 // ---- lights
-scene.add(new THREE.HemisphereLight(0xcfd8ff, 0x3a2a55, 0.95));
+scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3440, 0.8));
 const key = new THREE.DirectionalLight(0xfff0d0, 1.5); key.position.set(1.5, 5, 6); scene.add(key);
-const rimA = new THREE.PointLight(0xff3fa4, 60, 14); rimA.position.set(-4.5, 1.5, -1.5); scene.add(rimA);
-const rimB = new THREE.PointLight(0x35d6ff, 60, 14); rimB.position.set(4.5, 1.5, -1.5); scene.add(rimB);
+const rimA = new THREE.PointLight(0xff8a6a, 12, 14); rimA.position.set(-4.5, 1.5, -1.5); scene.add(rimA);
+const rimB = new THREE.PointLight(0x9ab8ff, 12, 14); rimB.position.set(4.5, 1.5, -1.5); scene.add(rimB);
 
 // ---- ring
 const std = (color, rough = 0.6) => new THREE.MeshStandardMaterial({ color, roughness: rough });
-const mat = new THREE.Mesh(new THREE.BoxGeometry(18, 0.5, 12), std('#2b5fd9', 0.8));
+const mat = new THREE.Mesh(new THREE.BoxGeometry(18, 0.5, 12), std('#2a3248', 0.85));
 mat.position.set(0, -3.75, -2); scene.add(mat);
 const apron = new THREE.Mesh(new THREE.BoxGeometry(18.4, 0.3, 12.4), std('#e8e8f0'));
 apron.position.set(0, -3.95, -2); scene.add(apron);
@@ -42,7 +42,7 @@ apron.position.set(0, -3.95, -2); scene.add(apron);
 function crowdTexture() {
   const c = document.createElement('canvas'); c.width = 1024; c.height = 512; const g = c.getContext('2d');
   const grad = g.createLinearGradient(0, 0, 0, 512); grad.addColorStop(0, '#07061a'); grad.addColorStop(0.55, '#1c1140'); grad.addColorStop(1, '#2a1658');
-  g.fillStyle = grad; g.fillRect(0, 0, 1024, 512);
+  g.fillStyle = grad; g.fillRect(0, 0, 1024, 512); g.filter = 'blur(4px)';
   let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   for (let row = 0; row < 9; row++) {
     const y = 190 + row * 36, r = 13 + row * 2.2;
@@ -56,7 +56,7 @@ function crowdTexture() {
   }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
-const crowd = new THREE.Mesh(new THREE.PlaneGeometry(44, 22), new THREE.MeshBasicMaterial({ map: crowdTexture(), fog: false }));
+const crowd = new THREE.Mesh(new THREE.PlaneGeometry(44, 22), new THREE.MeshBasicMaterial({ map: crowdTexture(), fog: false, color: 0x777777 }));
 crowd.position.set(0, 2.2, -13); scene.add(crowd);
 
 const FL = 46, flashPos = new Float32Array(FL * 3), flashCol = new Float32Array(FL * 3), flashLife = new Float32Array(FL);
