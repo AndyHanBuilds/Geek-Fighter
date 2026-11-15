@@ -8,6 +8,7 @@ import * as ui from './ui.js';
 import * as game from './game.js';
 import * as tracking from './tracking.js';
 import * as hands from './hands.js';
+import * as depth from './depth.js';
 import './input.js';
 import { Head } from './head.js';
 
@@ -36,7 +37,9 @@ async function headFromUrl(url, opts) {
   progress('Building the head', null);
   const img = new Image();
   await new Promise((ok, bad) => { img.onload = ok; img.onerror = () => bad(new Error('could not read that picture')); img.src = url; });
-  const head = headFrom(img, opts); ui.loaded(); return head;
+  const head = headFrom(img, opts); ui.loaded();
+  if (head) depth.addRelief(head, img);
+  return head;
 }
 
 // ---------- the face picker: resolves with a head, or null on Back ----------
