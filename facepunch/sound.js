@@ -5,7 +5,9 @@ const SETS = [{ dir: 'assets/audio/', gain: 1 }, { dir: 'assets/sfx/', gain: 1 }
 const LOUD = { 'brainrot_boom.wav': 0.5, 'cartoon_slide_whistle_down.wav': 0.5, 'brainrot_airhorn.wav': 0.5, 'brainrot_record_scratch.wav': 0.5 };
 // long clips are kept away from ordinary hits
 const LONG = new Set(['brainrot_sad_trombone.wav', 'cartoon_slide_whistle_down.wav', 'brainrot_boom.wav', 'brainrot_airhorn.wav', 'cartoon_boing.wav', 'brainrot_record_scratch.wav']);
-const PUNCH_GAIN = 0.42;                    // about 7.5 dB under the ouch
+// a very loud room: no music, no announcer, no long clips. Only short, sharp sounds are ever loaded.
+const MAX_LEN = 0.95;
+const PUNCH_GAIN = 0.7;                     // punches carry the room now that the voices are gone
 
 let ctx, master, limiter;
 const files = {};                           // file -> {url, kind, situation, gain, buf, loading}
@@ -37,6 +39,7 @@ export async function loadManifests() {
     try {
       const m = await (await fetch(set.dir + 'manifest.json')).json();
       for (const [name, info] of Object.entries(m.files || {})) {
+        if (info.kind === 'music' || info.kind === 'voice' || (info.duration_seconds || 0) > MAX_LEN) continue;
         files[name] = { url: set.dir + name, kind: info.kind, situation: info.situation, gain: (LOUD[name] || 1) * set.gain * (info.kind === 'impact' || info.kind === 'whoosh' ? PUNCH_GAIN : 1) };
         add(name, name); add(name.replace(/\.\w+$/, ''), name);
         if (info.situation) { add(info.situation, name); add(info.kind + ':' + info.situation, name); }
