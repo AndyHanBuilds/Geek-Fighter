@@ -428,15 +428,15 @@ export class Head {
       ear.position.set(b[3 * e] + s * 0.07, ey, b[3 * e + 2] - 0.26); this.headG.add(ear);
     }
     // neck: skin tone from under the jaw, darker in the shadow of the chin
-    const ng = new THREE.CylinderGeometry(0.62, 0.78, 2.3, 28, 6, true), np = ng.attributes.position, ncol = new Float32Array(np.count * 3);
-    for (let i = 0; i < np.count; i++) { const t = (np.getY(i) + 1.15) / 2.3, front = Math.max(0, np.getZ(i)); c.copy(this.neckCol).multiplyScalar(0.98 - 0.45 * t * (0.3 + front)); ncol[3 * i] = c.r; ncol[3 * i + 1] = c.g; ncol[3 * i + 2] = c.b; }
+    const ng = new THREE.CylinderGeometry(0.8, 0.98, 1.7, 28, 6, true), np = ng.attributes.position, ncol = new Float32Array(np.count * 3);
+    for (let i = 0; i < np.count; i++) { const t = (np.getY(i) + 0.85) / 1.7, front = Math.max(0, np.getZ(i)); c.copy(this.neckCol).multiplyScalar(0.98 - 0.45 * t * (0.3 + front)); ncol[3 * i] = c.r; ncol[3 * i + 1] = c.g; ncol[3 * i + 2] = c.b; }
     ng.setAttribute('color', new THREE.BufferAttribute(ncol, 3));
     const neckY = k.chin - 0.62, neckZ = k.cz + 0.22;
-    const neck = new THREE.Mesh(ng, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62 })); neck.position.set(0, neckY, neckZ); this.root.add(neck);
+    const neck = new THREE.Mesh(ng, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62 })); neck.position.set(0, neckY - 0.2, neckZ); this.root.add(neck);
     // shoulders in a plain dark shirt
     const shirt = new THREE.MeshStandardMaterial({ color: 0x1b1c22, roughness: 0.92 });
-    const torso = new THREE.Mesh(new THREE.SphereGeometry(1, 36, 20), shirt); torso.scale.set(3.1, 1.05, 1.4); torso.position.set(0, neckY - 1.85, neckZ - 0.15); this.root.add(torso);
-    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.84, 0.085, 10, 32), shirt); collar.rotation.x = Math.PI / 2 - 0.22; collar.position.set(0, neckY - 0.92, neckZ + 0.05); this.root.add(collar);
+    const torso = new THREE.Mesh(new THREE.SphereGeometry(1, 36, 20), shirt); torso.scale.set(3.3, 1.05, 1.5); torso.position.set(0, neckY - 1.45, neckZ - 0.15); this.root.add(torso);
+    const collar = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.09, 10, 32), shirt); collar.rotation.x = Math.PI / 2 - 0.22; collar.position.set(0, neckY - 0.78, neckZ + 0.05); this.root.add(collar);
     this.pivot.position.set(0, neckY - 0.2, neckZ); this.headG.position.set(0, -(neckY - 0.2), -neckZ);
     this._pv = [neckY - 0.2, neckZ];
   }
