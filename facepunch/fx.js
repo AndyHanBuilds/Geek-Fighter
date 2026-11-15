@@ -75,5 +75,51 @@ export function update(dt, real) {
     if (sLife[i] <= 0) sPos[3 * i] = 999;
   }
   sGeo.attributes.position.needsUpdate = true;
+  updateLumps(real);
 }
 export const dizzy = () => {};
+
+// ---------- lumps: at the turn switch every dent pops back out as a big silly sphere ----------
+const LUMP_MAX = 6, POP = 0.5, HOLD = 0.8, OUT = 0.5, GAP = 0.1;
+const lumpGeo = new THREE.SphereGeometry(1, quality.low ? 16 : 24, quality.low ? 10 : 16);
+const lumpList = [];
+const elastic = k => k <= 0 ? 0 : k >= 1 ? 1 : Math.pow(2, -10 * k) * Math.sin((k * 10 - 0.75) * (2 * Math.PI / 3)) + 1;
+// merge nearby hits, keep the biggest few, make each one a sphere sitting half out of the face
+export function lumps(head) {
+  const hits = head.hits || []; if (!hits.length) return 0;
+  const groups = [];
+  for (const h of hits) {
+    const g = groups.find(q => (q.x - h.x) ** 2 + (q.y - h.y) ** 2 < 0.2);
+    if (g) { g.dmg += h.dmg; g.n++; } else groups.push({ ...h, n: 1 });
+  }
+  groups.sort((a, b) => b.dmg - a.dmg); groups.length = Math.min(groups.length, LUMP_MAX);
+  groups.sort((a, b) => a.y - b.y);
+  const tint = ['#c8325a', '#a63a8c', '#d4503a'];
+  groups.forEach((g, k) => {
+    const r = 0.2 + 0.26 * Math.min(1, g.dmg / 9) + 0.04 * Math.min(g.n - 1, 3);
+    const mat = new THREE.MeshStandardMaterial({ color: head.skin.clone().lerp(new THREE.Color(tint[k % 3]), 0.62), roughness: 0.3, metalness: 0 });
+    mat.emissive = mat.color.clone().multiplyScalar(0.18);
+    const m = new THREE.Mesh(lumpGeo, mat); m.frustumCulled = false; m.renderOrder = 4;
+    const nl = Math.hypot(g.nx, g.ny, g.nz) || 1;
+    m.position.set(g.x + g.nx / nl * r * 0.45, g.y + g.ny / nl * r * 0.45, g.z + g.nz / nl * r * 0.45);
+    m.scale.setScalar(0.0001); head.headG.add(m);
+    lumpList.push({ m, mat, head, r, t: -k * GAP, popped: false });
+  });
+  const total = (groups.length - 1) * GAP + POP + HOLD;
+  head.dentRelease(total, OUT);
+  return total + OUT;
+}
+function updateLumps(real) {
+  for (let i = lumpList.length - 1; i >= 0; i--) {
+    const L = lumpList[i]; L.t += real;
+    if (L.t >= 0 && !L.popped) { L.popped = true; sound('brainrot_bonk', { gain: 0.9, rate: 1.1 + Math.random() * 0.3, channel: 'pop' + (i % 3) }); }
+    let s;
+    if (L.t < 0) s = 0.0001;
+    else if (L.t < POP) s = L.r * elastic(L.t / POP);
+    else if (L.t < POP + HOLD) s = L.r;
+    else { const k = Math.min(1, (L.t - POP - HOLD) / OUT); s = L.r * (1 - k * k * (3 - 2 * k)); }
+    if (L.t >= POP + HOLD + OUT || !L.head.root.parent) { L.m.removeFromParent(); L.mat.dispose(); lumpList.splice(i, 1); continue; }
+    L.m.scale.setScalar(Math.max(0.0001, s));
+  }
+}
+export function clearLumps() { for (const L of lumpList) { L.m.removeFromParent(); L.mat.dispose(); } lumpList.length = 0; }

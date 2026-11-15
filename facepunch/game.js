@@ -25,7 +25,7 @@ function resetHead(h, visible) {
 }
 
 export function start(mode, heads) {
-  timers = []; fx.dizzy(null); ui.koFx(false); arena.zoom(0);
+  timers = []; fx.dizzy(null); fx.clearLumps(); ui.koFx(false); arena.zoom(0);
   for (const h of G.heads) if (!heads.includes(h)) h.dispose();
   G.mode = mode; G.heads = heads; G.atk = 0; G.combo = 0; G.score = 0; G.kos = 0; G.hits = 0; G.turns = 0; G.nearKo = false;
   G.hp = [100, 100]; G.max = [100, 100]; G.clock = SOLO_TIME; G.turnT = TURN_TIME;
@@ -49,7 +49,7 @@ function intro(a, b) {
   after(1.3, () => { ui.banner(b, 700); G.phase = 'fight'; fx.sound('ko_bell', { gain: 0.5, rate: 1.4 }); });
 }
 export function quit() {
-  timers = []; G.phase = 'menu'; fx.dizzy(null); ui.koFx(false); arena.zoom(0); fx.slowmo(1, 0);
+  timers = []; G.phase = 'menu'; fx.dizzy(null); fx.clearLumps(); ui.koFx(false); arena.zoom(0); fx.slowmo(1, 0);
   G.heads.forEach(h => h.dispose()); G.heads = []; G.mode = null; gloves.setVisible(false); ui.show('menu');
 }
 
@@ -99,9 +99,9 @@ function ko() {
   fx.sound('ko_bell'); fx.sound('voice:ko', { channel: 'vo' }); fx.sound('crowd_gasp', { gain: 0.7 }); fx.sound('brainrot_boom');
   if (G.mode === 'solo') {
     after(1.9, () => {
-      revive(head); G.max[0] = Math.round(G.max[0] * 1.2); G.hp[0] = G.max[0]; G.clock += 4; G.nearKo = false;
+      const wait = revive(head); G.max[0] = Math.round(G.max[0] * 1.2); G.hp[0] = G.max[0]; G.clock += 4; G.nearKo = false;
       ui.bar(0, 1); head.setIdle('neutral');
-      after(0.45, () => { if (G.phase === 'ko') G.phase = 'fight'; });
+      after(0.45 + wait, () => { if (G.phase === 'ko') G.phase = 'fight'; });
     });
   } else {
     const winner = G.atk;
@@ -115,16 +115,17 @@ function ko() {
 }
 function revive(head) {
   ui.koFx(false); arena.zoom(0); fx.dizzy(null); fx.slowmo(1, 0);
+  const wait = fx.lumps(head);
   head.bounceBack(); arena.kick(0, 1, 1.2); arena.addTrauma(0.4);
   ui.banner('BOUNCE BACK!', 1300, 'bb');
   fx.sound('bounce_back_sting'); fx.sound('cartoon_boing', { gain: 0.8, channel: 'boing' }); fx.sound('voice:bounce_back', { channel: 'vo' });
+  return wait;
 }
 
 // ---------- two player: bruises become booboos, pop back, then the heads swap ----------
 function endTurn() {
   G.phase = 'switch'; G.turns++; ui.combo(0); ui.banner('TIME!', 800);
-  const old = target(), wait = old.booboo();
-  if (wait) fx.sound('cartoon_boing', { gain: 0.6, rate: 0.8, channel: 'boing' });
+  const old = target(), wait = fx.lumps(old);
   after(wait + 0.15, () => {
     old.swapOut(-1); arena.whip(-1);
     fx.sound('brainrot_record_scratch'); fx.sound('swing'); fx.sound('voice:turn_swap', { channel: 'vo' });
@@ -136,8 +137,9 @@ function endTurn() {
 
 function endSolo() {
   G.phase = 'over-wait'; ui.banner('TIME!', 1100); fx.sound('ko_bell');
+  const wait = fx.lumps(G.heads[0]);
   const rank = G.kos >= 5 ? 'BOUNCE BACK CHAMPION' : G.kos >= 3 ? 'FACE FLATTENER' : G.kos >= 1 ? 'JELLY WOBBLER' : 'PILLOW FISTS';
-  after(1.3, () => {
+  after(1.3 + wait, () => {
     G.phase = 'over'; fx.sound(G.kos > 0 ? 'crowd_cheer' : 'brainrot_sad_trombone');
     ui.over(rank, `SCORE ${G.score}\n${G.kos} knockouts. The face bounced back ${G.kos} times.`);
   });

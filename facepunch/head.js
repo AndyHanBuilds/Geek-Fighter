@@ -542,7 +542,7 @@ export class Head {
   dentRelease(delay = 0, dur = 0.5) { this._rel = { t: -delay, dur }; }
 
   knockDown() { this.fallT = 1; this.fallV += 3; this.setExpr('ko', 99); this.spring.vx -= 8; }
-  bounceBack() { this.fallT = 0; this.fallV -= 9; this.setExpr('grit', 1.6); this.bruise.fill(0); this.spring.vpy += 6; this._clearDents(); }
+  bounceBack() { this.fallT = 0; this.fallV -= 9; this.setExpr('grit', 1.6); this.bruise.fill(0); this.spring.vpy += 6; if (!this._rel) this._clearDents(); }
 
   // the bruises swell up for a second, then spring back; returns seconds until smooth again
   booboo() {
