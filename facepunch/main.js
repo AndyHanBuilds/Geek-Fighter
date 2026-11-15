@@ -13,7 +13,6 @@ import { Head } from './head.js';
 
 const { $ } = ui;
 const RED = '#e23b4a', BLUE = '#2f7bff';
-const SKINS = ['#ffcf5a', '#8fe3b0'];
 const CORE_SOUNDS = ['hit_light', 'hit_medium', 'hit_heavy', 'hit_squish', 'swing', 'ouch', 'rare', 'ko_bell', 'voice:ko', 'crowd_gasp', 'brainrot_boom',
   'bounce_back_sting', 'cartoon_boing', 'voice:bounce_back', 'voice:round_start', 'voice:first_hit', 'voice:big_combo', 'voice:near_ko', 'voice:whiff',
   'crowd_cheer', 'brainrot_airhorn', 'brainrot_record_scratch', 'voice:turn_swap', 'brainrot_sad_trombone', 'ui_click', 'ui_confirm'];
@@ -28,23 +27,9 @@ document.addEventListener('click', e => { if (e.target.closest('button, label.bi
 // ---------- building heads ----------
 const progress = (text, frac) => ui.loading(text, frac);
 
-// average colour of a cheek, used for the neck and shoulders
-function skinOf(source, lm) {
-  try {
-    const c = document.createElement('canvas'); c.width = c.height = 8; const g = c.getContext('2d');
-    const w = source.naturalWidth || source.width, h = source.naturalHeight || source.height;
-    g.drawImage(source, lm[50].x * w - w * 0.02, lm[50].y * h - h * 0.02, w * 0.04, h * 0.04, 0, 0, 8, 8);
-    const d = g.getImageData(0, 0, 8, 8).data; let r = 0, gg = 0, b = 0;
-    for (let i = 0; i < d.length; i += 4) { r += d[i]; gg += d[i + 1]; b += d[i + 2]; }
-    const n = d.length / 4; return `rgb(${r / n | 0},${gg / n | 0},${b / n | 0})`;
-  } catch (e) { return '#e8b48c'; }
-}
 function headFrom(source, opts) {
   const lm = tracking.detectFace(source); if (!lm) return null;
-  const tex = source instanceof HTMLCanvasElement ? new THREE.CanvasTexture(source) : new THREE.Texture(source);
-  tex.colorSpace = THREE.SRGBColorSpace; tex.needsUpdate = true;
-  const w = source.naturalWidth || source.width, h = source.naturalHeight || source.height;
-  return Head.fromLandmarks(lm, w / h, tex, { ...opts, skin: skinOf(source, lm) });
+  return Head.fromLandmarks(lm, source, opts);
 }
 async function headFromUrl(url, opts) {
   await tracking.loadFace(progress);
@@ -62,7 +47,6 @@ function pickFace(title, opts) {
     msg('A photo or a scan becomes a 3D head. It never leaves this device.');
     $('cam').hidden = true; $('bScan').hidden = true;
     const done = head => { $('cam').hidden = true; $('bScan').hidden = true; $('file').value = ''; resolve(head); };
-    $('bToon').onclick = () => done(Head.cartoon(opts));
     $('bPickBack').onclick = () => done(null);
     $('file').onchange = async e => {
       const f = e.target.files[0]; if (!f) return;
@@ -70,14 +54,14 @@ function pickFace(title, opts) {
       try {
         const head = await headFromUrl(url, opts);
         if (head) done(head); else msg('No face found in that photo. Try a clear, front-facing one.');
-      } catch (err) { ui.loaded(); msg('That did not work (' + (err.message || err) + '). Try the cartoon face.'); }
+      } catch (err) { ui.loaded(); msg('That did not work (' + (err.message || err) + '). Try another photo.'); }
       URL.revokeObjectURL(url);
     };
     $('bCam').onclick = async () => {
       try {
         await tracking.startCamera($('cam'), progress, { face: true }); ui.loaded();
         $('cam').hidden = false; $('bScan').hidden = false; msg('Look at the camera, then press Scan.');
-      } catch (err) { ui.loaded(); msg('No camera (' + (err.name || err) + '). Pick a photo or the cartoon face.'); }
+      } catch (err) { ui.loaded(); msg('No camera (' + (err.name || err) + '). Pick a photo instead.'); }
     };
     $('bScan').onclick = () => {
       const head = headFrom(tracking.snapshot(), opts);
@@ -87,23 +71,34 @@ function pickFace(title, opts) {
 }
 
 let lastSetup = null;
-async function quickPlay() { lastSetup = quickPlay; game.start('solo', [Head.cartoon({ corner: BLUE, skin: SKINS[0], name: 'JELLY JOE' })]); }
-async function myFace() {
-  const head = await pickFace('PICK THE FACE TO PUNCH', { corner: BLUE, skin: SKINS[0], name: 'THE FACE' });
+// Quick Play uses the bundled default face when the file is there; otherwise it asks for a photo or a scan.
+const DEFAULT_FACE = 'assets/default_face.jpg';
+let hasDefault = null;
+async function quickPlay() {
+  if (hasDefault === null) hasDefault = await fetch(DEFAULT_FACE, { method: 'HEAD' }).then(r => r.ok && /image/.test(r.headers.get('content-type') || ''), () => false);
+  if (!hasDefault) return myFace('PHOTO OR CAMERA FIRST');
+  try {
+    const head = await headFromUrl(DEFAULT_FACE, { corner: BLUE, name: 'THE FACE' });
+    if (!head) throw new Error('no face');
+    lastSetup = () => game.start('solo', [head]); lastSetup();
+  } catch (e) { ui.loaded(); hasDefault = false; myFace('PHOTO OR CAMERA FIRST'); }
+}
+async function myFace(title) {
+  const head = await pickFace(typeof title === 'string' ? title : 'PICK THE FACE TO PUNCH', { corner: BLUE, name: 'THE FACE' });
   if (!head) return ui.show('menu');
   lastSetup = () => game.start('solo', [head]); lastSetup();
   // a scanned face keeps copying the real one while the camera is on (solo only)
   if (head.live && tracking.cam.on) tracking.loadLiveFace(progress).then(() => { ui.loaded(); hands.state.liveHead = head; }).catch(() => ui.loaded());
 }
 async function twoPlayers() {
-  const a = await pickFace('PLAYER 1: PICK YOUR FACE', { corner: RED, skin: SKINS[0], name: 'PLAYER 1' });
+  const a = await pickFace('PLAYER 1: PICK YOUR FACE', { corner: RED, name: 'PLAYER 1' });
   if (!a) return ui.show('menu');
-  const b = await pickFace('PLAYER 2: PICK YOUR FACE', { corner: BLUE, skin: SKINS[1], name: 'PLAYER 2' });
+  const b = await pickFace('PLAYER 2: PICK YOUR FACE', { corner: BLUE, name: 'PLAYER 2' });
   if (!b) { a.dispose(); return ui.show('menu'); }
   if (!hands.state.enabled) tracking.stopCamera();      // the scans are done: the camera goes off
   lastSetup = () => game.start('pvp', [a, b]); lastSetup();
 }
-$('bQuick').onclick = quickPlay; $('bFace').onclick = myFace; $('bPvp').onclick = twoPlayers;
+$('bQuick').onclick = quickPlay; $('bFace').onclick = () => myFace(); $('bPvp').onclick = twoPlayers;
 $('bAgain').onclick = () => lastSetup && lastSetup();
 const leave = () => { hands.state.liveHead = null; if (!hands.state.enabled) tracking.stopCamera(); game.quit(); };
 $('bMenu').onclick = leave;
@@ -133,7 +128,7 @@ $('bHands').onclick = async () => {
 // ---------- frame loop ----------
 let last = performance.now(), fpsT = 0, fpsN = 0, fps = 60, slowFor = 0;
 function frame(ts) {
-  step(Math.min(0.1, Math.max(0, (ts - last) / 1000))); last = ts;
+  if (!window.__fp.paused) step(Math.min(0.1, Math.max(0, (ts - last) / 1000))); last = ts;
   requestAnimationFrame(frame);
 }
 function step(real) {
