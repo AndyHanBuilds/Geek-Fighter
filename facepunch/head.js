@@ -1,170 +1,200 @@
-// A punchable head: a jelly face (from a photo, a scan, or drawn), reaction
-// expressions, bruises that turn into booboos, plus skull, headgear, neck and body.
+// A punchable, realistic head built from one photo or scan: a dense skin mesh
+// with soft-tissue physics, real eye and mouth interiors, reaction expressions,
+// mild bruising and swelling, and a skull, ears, neck and shoulders coloured
+// from the photo itself.
 import * as THREE from 'three';
 import Delaunator from 'https://cdn.jsdelivr.net/npm/delaunator@5.0.1/+esm';
 
-const K = 150, C = 5.5, KN = 70;          // jelly spring, damping, neighbour coupling
+const K = 150, C = 6, KN = 80;            // tissue spring, damping, neighbour coupling
+const NL = 468;                           // face landmarks used for the skin
 
-// face landmark groups (same numbering on every face)
+// landmark groups (same numbering on every face)
 const LIP_UP_IN = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
 const LIP_LO_IN = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308];
 const LIP_UP_OUT = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291];
 const LIP_LO_OUT = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291];
 const EYES = [
-  { up: [246, 161, 160, 159, 158, 157, 173], lo: [7, 163, 144, 145, 153, 154, 155], top: 159, bot: 145 },
-  { up: [466, 388, 387, 386, 385, 384, 398], lo: [249, 390, 373, 374, 380, 381, 382], top: 386, bot: 374 },
+  { up: [246, 161, 160, 159, 158, 157, 173], lo: [7, 163, 144, 145, 153, 154, 155], ends: [33, 133], top: 159, bot: 145 },
+  { up: [466, 388, 387, 386, 385, 384, 398], lo: [249, 390, 373, 374, 380, 381, 382], ends: [263, 362], top: 386, bot: 374 },
 ];
 const BROWS = [[70, 63, 105, 66, 107, 55, 65, 52, 53, 46], [300, 293, 334, 296, 336, 285, 295, 282, 283, 276]];
 const CHEEKS = [50, 280];
 
-// expression presets: jaw drop, eye squeeze, brows up, determined brow, cheek puff, dizzy eyes
+// reaction presets: jaw drop, eye squeeze, brows up, set brow, cheek puff, rolling eyes
 const EXPR = {
   neutral: { jaw: 0, squint: 0, brow: 0, grit: 0, puff: 0, dizzy: 0 },
-  hurt: { jaw: 0.12, squint: 0.25, brow: 0.5, grit: 0, puff: 0, dizzy: 0 },
-  hit: { jaw: 0.6, squint: 0.85, brow: 0.7, grit: 0, puff: 0.15, dizzy: 0 },
-  heavy: { jaw: 1, squint: 1, brow: 1, grit: 0, puff: 1, dizzy: 0 },
-  ko: { jaw: 0.9, squint: 0.2, brow: 0.4, grit: 0, puff: 0.2, dizzy: 1 },
+  hurt: { jaw: 0.1, squint: 0.3, brow: 0.5, grit: 0, puff: 0, dizzy: 0 },
+  hit: { jaw: 0.45, squint: 0.9, brow: 0.5, grit: 0, puff: 0.3, dizzy: 0 },
+  heavy: { jaw: 0.9, squint: 1, brow: 0.9, grit: 0, puff: 1, dizzy: 0 },
+  ko: { jaw: 0.75, squint: 0.55, brow: 0.3, grit: 0, puff: 0.1, dizzy: 1 },
   grit: { jaw: 0, squint: 0.3, brow: 0, grit: 1, puff: 0, dizzy: 0 },
 };
 const KEYS = ['jaw', 'squint', 'brow', 'grit', 'puff', 'dizzy'];
 
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-const std = (color, rough = 0.55) => new THREE.MeshStandardMaterial({ color, roughness: rough });
+const clamp = THREE.MathUtils.clamp;
 
-function canvasTex(size, draw) {
-  const c = document.createElement('canvas'); c.width = c.height = size; draw(c.getContext('2d'), size);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+let teethTex;
+function teethTexture() {
+  if (teethTex) return teethTex;
+  const c = document.createElement('canvas'); c.width = 256; c.height = 32; const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 32); grad.addColorStop(0, '#b9ab9c'); grad.addColorStop(0.35, '#ece4d6'); grad.addColorStop(1, '#d8cdbb');
+  g.fillStyle = grad; g.fillRect(0, 0, 256, 32);
+  g.strokeStyle = 'rgba(70,50,45,0.55)'; g.lineWidth = 1.5;
+  for (let k = 1; k < 10; k++) { const x = k * 25.6 + (k % 2 ? 2 : -2); g.beginPath(); g.moveTo(x, 4); g.lineTo(x, 32); g.stroke(); }
+  teethTex = new THREE.CanvasTexture(c); teethTex.colorSpace = THREE.SRGBColorSpace; return teethTex;
 }
-let spiralTex, plasterTex;
-function sharedTextures() {
-  spiralTex ||= canvasTex(128, (g, s) => {
-    g.fillStyle = '#fff'; g.beginPath(); g.arc(s / 2, s / 2, s * 0.46, 0, 6.3); g.fill();
-    g.strokeStyle = '#1b1b2a'; g.lineWidth = 9; g.lineCap = 'round'; g.beginPath();
-    for (let a = 0; a < 15; a += 0.15) { const r = a * 3.6; g.lineTo(s / 2 + Math.cos(a) * r, s / 2 + Math.sin(a) * r); }
-    g.stroke();
-  });
-  plasterTex ||= canvasTex(128, (g, s) => {
-    g.translate(s / 2, s / 2);
-    for (const rot of [0.6, -0.6]) {
-      g.save(); g.rotate(rot); g.fillStyle = '#f2c79a'; g.strokeStyle = '#b98857'; g.lineWidth = 4;
-      g.beginPath(); g.roundRect(-56, -17, 112, 34, 16); g.fill(); g.stroke();
-      g.fillStyle = '#fbe6cc'; g.fillRect(-17, -13, 34, 26);
-      g.fillStyle = '#b98857'; for (const x of [-40, -30, 30, 40]) { g.beginPath(); g.arc(x, 0, 2.5, 0, 6.3); g.fill(); }
-      g.restore();
-    }
-  });
+
+// average colour of a small patch of the source picture
+function sample(ctx, w, h, u, v, r = 0.02) {
+  const x = clamp(Math.round((u - r) * w), 0, w - 2), y = clamp(Math.round((v - r) * h), 0, h - 2);
+  const sw = Math.max(1, Math.min(w - x, Math.round(2 * r * w))), sh = Math.max(1, Math.min(h - y, Math.round(2 * r * h)));
+  const d = ctx.getImageData(x, y, sw, sh).data; let R = 0, G = 0, B = 0; const n = d.length / 4;
+  for (let i = 0; i < d.length; i += 4) { R += d[i]; G += d[i + 1]; B += d[i + 2]; }
+  return new THREE.Color().setRGB(R / n / 255, G / n / 255, B / n / 255, THREE.SRGBColorSpace);
 }
 
 export class Head {
   constructor(opts = {}) {
-    sharedTextures();
-    this.corner = opts.corner || '#e23b4a';
-    this.skin = opts.skin || '#e8b48c';
     this.name = opts.name || 'FACE';
     this.root = new THREE.Group();         // whole fighter: fall and swap animations
-    this.pivot = new THREE.Group();        // neck base: the head bobbles around it
-    this.headG = new THREE.Group();        // the head itself
-    this.pivot.position.set(0, -1.7, -0.75); this.headG.position.set(0, 1.7, 0.75);
+    this.pivot = new THREE.Group();        // base of the neck: the head rocks around it
+    this.headG = new THREE.Group();
     this.root.add(this.pivot); this.pivot.add(this.headG);
     this.spring = { rx: 0, ry: 0, rz: 0, vx: 0, vy: 0, vz: 0, px: 0, py: 0, pz: 0, vpx: 0, vpy: 0, vpz: 0 };
     this.w = { ...EXPR.neutral }; this.wT = { ...EXPR.neutral }; this.exprHold = 0; this.idle = 'neutral';
     this.skew = 0;
     this.fallV = 0; this.fallP = 0; this.fallT = 0;      // 0 standing, 1 knocked down
     this.swap = 0; this.swapT = 0; this.swapDir = 1;     // 0 on stage, 1 off stage
-    this.bumpP = 0; this.bumpV = 0; this.bumpT = 0; this.bumpTimer = 0; this.decals = [];
-    this.t = Math.random() * 10;
-    this.live = false;
+    this.bumpP = 0; this.bumpV = 0; this.bumpT = 0; this.bumpTimer = 0;
+    this.reliefAmt = 0; this.reliefT = 0;
+    this.t = Math.random() * 10; this.live = false; this.kind = 'photo';
   }
 
-  // ---------- builders ----------
-  static fromLandmarks(lm, aspect, texture, opts = {}) {
-    const h = new Head(opts); h.kind = 'photo';
-    const N = 468, pts = new Float64Array(N * 2), uvs = new Float32Array(N * 2);
+  // source: an image or canvas; lm: 478 face landmarks in picture coordinates
+  static fromLandmarks(lm, source, opts = {}) {
+    const h = new Head(opts);
+    const w = source.naturalWidth || source.width, ht = source.naturalHeight || source.height;
+    h.aspect = w / ht;
+    const tex = source instanceof HTMLCanvasElement ? new THREE.CanvasTexture(source) : new THREE.Texture(source);
+    tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; tex.needsUpdate = true; h.tex = tex;
+    h._colours(source, w, ht, lm);
+    h._topology(lm);
+    h.setPose(lm, h.aspect);
+    h._rig();
+    h._material();
+    h._interiors();
+    h._dress();
+    h._occlusion();
+    return h;
+  }
+
+  // skin, neck and hair colours come from the picture itself
+  _colours(source, w, h, lm) {
+    this.skin = new THREE.Color('#c99a7c'); this.hair = new THREE.Color('#2a211c'); this.neckCol = this.skin.clone().multiplyScalar(0.85);
+    try {
+      const c = document.createElement('canvas'), s = Math.min(1, 512 / Math.max(w, h)); c.width = Math.round(w * s); c.height = Math.round(h * s);
+      const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(source, 0, 0, c.width, c.height);
+      const fh = lm[152].y - lm[10].y;
+      const a = sample(g, c.width, c.height, lm[50].x, lm[50].y), b = sample(g, c.width, c.height, lm[280].x, lm[280].y);
+      this.skin = a.clone().lerp(b, 0.5);
+      const jaw = sample(g, c.width, c.height, lm[172].x * 0.6 + lm[152].x * 0.4, lm[172].y * 0.5 + lm[152].y * 0.5);
+      this.neckCol = lm[152].y + fh * 0.12 < 0.98 ? sample(g, c.width, c.height, lm[152].x, lm[152].y + fh * 0.12, 0.025).lerp(jaw, 0.5) : jaw.clone().multiplyScalar(0.8);
+      const hy = Math.max(0.01, lm[10].y - fh * 0.14);
+      this.hair = sample(g, c.width, c.height, lm[10].x, hy, 0.03).lerp(sample(g, c.width, c.height, lm[10].x - (lm[454].x - lm[234].x) * 0.25, hy, 0.03), 0.5);
+    } catch (e) { /* keep the defaults */ }
+  }
+
+  // triangles over the landmarks, holes for eyes and mouth, a soft rim, then one round of subdivision
+  _topology(lm) {
+    const asp = this.aspect, pts = new Float64Array(NL * 2);
     let minx = 9, maxx = -9;
-    for (let i = 0; i < N; i++) {
-      pts[2 * i] = lm[i].x * aspect; pts[2 * i + 1] = lm[i].y;
-      uvs[2 * i] = lm[i].x; uvs[2 * i + 1] = 1 - lm[i].y;
-      minx = Math.min(minx, pts[2 * i]); maxx = Math.max(maxx, pts[2 * i]);
-    }
-    h._jelly(N, pts, uvs, 0.30 * (maxx - minx), texture);
-    h.setPose(lm, aspect);
-    h._rigPhoto();
-    h._dress();
-    return h;
-  }
-
-  static cartoon(opts = {}) {
-    const h = new Head({ skin: '#ffcf5a', ...opts }); h.kind = 'cartoon';
-    const P = [[0, 0]];
-    for (let k = 1; k <= 10; k++) for (let j = 0; j < 6 * k; j++) { const a = j / (6 * k) * Math.PI * 2 + k * 0.2; P.push([Math.cos(a) * k / 10, Math.sin(a) * k / 10]); }
-    const N = P.length, pts = new Float64Array(N * 2), uvs = new Float32Array(N * 2);
-    h.N = N; h.base = new Float32Array(N * 3);
-    for (let i = 0; i < N; i++) {
-      const x = P[i][0] * 1.0, y = P[i][1] * 1.32, r2 = P[i][0] ** 2 + P[i][1] ** 2;
-      pts[2 * i] = x; pts[2 * i + 1] = -y;
-      uvs[2 * i] = 0.5 + x / 2.2; uvs[2 * i + 1] = 0.5 + y / 2.9;
-      h.base[3 * i] = x; h.base[3 * i + 1] = y;
-      h.base[3 * i + 2] = 0.72 * Math.sqrt(Math.max(0, 1 - r2 * 0.94)) - 0.42 + 0.2 * Math.exp(-(x * x + (y + 0.08) ** 2) / 0.035);
-    }
-    h.faceCanvas = document.createElement('canvas'); h.faceCanvas.width = h.faceCanvas.height = 512;
-    const tex = new THREE.CanvasTexture(h.faceCanvas); tex.colorSpace = THREE.SRGBColorSpace;
-    const keep = h.base; h._jelly(N, pts, uvs, 9, tex); h.base = keep;
-    h.eyeAt = [[-0.38, 0.3, 0.42], [0.38, 0.3, 0.42]];
-    h._drawn = ''; h._drawFace();
-    h._dress();
-    return h;
-  }
-
-  _jelly(N, pts, uvs, maxEdge, texture) {
-    this.N = N;
-    const d = new Delaunator(pts), keep = [];
+    for (let i = 0; i < NL; i++) { pts[2 * i] = lm[i].x * asp; pts[2 * i + 1] = lm[i].y; minx = Math.min(minx, pts[2 * i]); maxx = Math.max(maxx, pts[2 * i]); }
+    const maxEdge = 0.3 * (maxx - minx), d = new Delaunator(pts);
+    const mouthSet = new Set([...LIP_UP_IN, ...LIP_LO_IN]);
+    const eyeSets = EYES.map(e => new Set([...e.up, ...e.lo, ...e.ends]));
+    const holes = [mouthSet, ...eyeSets], inHole = (a, b, c) => holes.some(s => s.has(a) && s.has(b) && (c === undefined || s.has(c)));
     const e = (p, q) => Math.hypot(pts[2 * p] - pts[2 * q], pts[2 * p + 1] - pts[2 * q + 1]);
+    let tris = [];
     for (let t = 0; t < d.triangles.length; t += 3) {
       const a = d.triangles[t], b = d.triangles[t + 1], c = d.triangles[t + 2];
-      if (Math.max(e(a, b), e(b, c), e(c, a)) < maxEdge) {
-        // image space has y down, the scene has y up: flip the winding so normals face the camera
-        const area = (pts[2 * b] - pts[2 * a]) * (pts[2 * c + 1] - pts[2 * a + 1]) - (pts[2 * c] - pts[2 * a]) * (pts[2 * b + 1] - pts[2 * a + 1]);
-        if (area > 0) keep.push(a, c, b); else keep.push(a, b, c);
+      if (Math.max(e(a, b), e(b, c), e(c, a)) < maxEdge && !inHole(a, b, c)) tris.push(a, b, c);
+    }
+    // derived vertices are described by their parents so a live pose can rebuild them
+    const der = [];                                // {a, b} midpoint, or {p, k, dz} rim point
+    const imgX = [], imgY = [], alpha = [];
+    for (let i = 0; i < NL; i++) { imgX.push(lm[i].x); imgY.push(lm[i].y); alpha.push(1); }
+    // outer boundary loop
+    const count = new Map(), key = (a, b) => (a < b ? a * 4096 + b : b * 4096 + a);
+    for (let t = 0; t < tris.length; t += 3) for (const [a, b] of [[tris[t], tris[t + 1]], [tris[t + 1], tris[t + 2]], [tris[t + 2], tris[t]]]) count.set(key(a, b), (count.get(key(a, b)) || 0) + 1);
+    const nxt = new Map();
+    for (let t = 0; t < tris.length; t += 3) for (const [a, b] of [[tris[t], tris[t + 1]], [tris[t + 1], tris[t + 2]], [tris[t + 2], tris[t]]]) if (count.get(key(a, b)) === 1 && !inHole(a, b)) nxt.set(a, b);
+    const loop = []; let start = nxt.keys().next().value, cur = start;
+    for (let n = 0; cur !== undefined && n < 400; n++) { loop.push(cur); cur = nxt.get(cur); if (cur === start) break; }
+    if (cur === start && loop.length > 20) {
+      let cx = 0, cy = 0; for (const v of loop) { cx += imgX[v]; cy += imgY[v]; } cx /= loop.length; cy /= loop.length;
+      const rings = [[0.07, 0.2, 0.75], [0.13, 0.5, 0]], ids = [loop];
+      for (const [k, dz, al] of rings) {
+        const ring = loop.map(p => {
+          der.push({ p, k, dz }); imgX.push(clamp(cx + (imgX[p] - cx) * (1 + k), 0.002, 0.998)); imgY.push(clamp(cy + (imgY[p] - cy) * (1 + k), 0.002, 0.998)); alpha.push(al);
+          return NL + der.length - 1;
+        });
+        ids.push(ring);
+      }
+      this.rimC = [cx, cy];
+      for (let r = 0; r < 2; r++) for (let j = 0; j < loop.length; j++) {
+        const j2 = (j + 1) % loop.length, a = ids[r][j], b = ids[r][j2], a1 = ids[r + 1][j], b1 = ids[r + 1][j2];
+        tris.push(a, b, b1, a, b1, a1);
       }
     }
-    const tri = new Uint32Array(keep);
+    // one round of midpoint subdivision makes the skin dense enough to bend smoothly
+    const mid = new Map(), out = [];
+    const m = (a, b) => {
+      const k2 = a < b ? a * 65536 + b : b * 65536 + a; let v = mid.get(k2);
+      if (v === undefined) { der.push({ a, b }); imgX.push((imgX[a] + imgX[b]) / 2); imgY.push((imgY[a] + imgY[b]) / 2); alpha.push((alpha[a] + alpha[b]) / 2); v = NL + der.length - 1; mid.set(k2, v); }
+      return v;
+    };
+    for (let t = 0; t < tris.length; t += 3) {
+      const a = tris[t], b = tris[t + 1], c = tris[t + 2], ab = m(a, b), bc = m(b, c), ca = m(c, a);
+      out.push(a, ab, ca, ab, b, bc, ca, bc, c, ab, bc, ca);
+    }
+    const N = this.N = NL + der.length; this.der = der;
     this.base = new Float32Array(N * 3); this.off = new Float32Array(N * 3); this.vel = new Float32Array(N * 3);
-    this.bruise = new Float32Array(N); this.bump = new Float32Array(N); this.colors = new Float32Array(N * 3).fill(1);
-    const sets = Array.from({ length: N }, () => new Set());
-    for (let t = 0; t < tri.length; t += 3) { const [a, b, c] = [tri[t], tri[t + 1], tri[t + 2]]; sets[a].add(b).add(c); sets[b].add(a).add(c); sets[c].add(a).add(b); }
-    this.nbr = sets.map(s => Array.from(s));
-    const geo = this.geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-    geo.setAttribute('color', new THREE.BufferAttribute(this.colors, 3).setUsage(THREE.DynamicDrawUsage));
-    geo.setIndex(new THREE.BufferAttribute(tri, 1));
-    this.tex = texture;
-    const mat = new THREE.MeshStandardMaterial({ map: texture, vertexColors: true, roughness: 0.62, side: THREE.DoubleSide, emissive: 0x3a3a3a, emissiveMap: texture,
-      polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -12000 });   // the face always wins over the helmet behind it
-    this.mesh = new THREE.Mesh(geo, mat); this.mesh.frustumCulled = false; this.headG.add(this.mesh);
+    this.bruise = new Float32Array(N); this.bump = new Float32Array(N); this.relief = new Float32Array(N); this.ao = new Float32Array(N).fill(1);
+    this.alpha = Float32Array.from(alpha); this.imgX = Float32Array.from(imgX); this.imgY = Float32Array.from(imgY);
+    this.colors = new Float32Array(N * 4).fill(1);
+    const uv = new Float32Array(N * 2); for (let i = 0; i < N; i++) { uv[2 * i] = imgX[i]; uv[2 * i + 1] = 1 - imgY[i]; }
+    this._tris = out; this._uv = uv;
   }
 
   // landmarks -> centred, scaled positions (face width = 2); z grows toward the camera
   setPose(lm, aspect) {
-    const N = this.N, base = this.base;
+    const base = this.base;
     let cx = 0, cy = 0, cz = 0, minx = 9, maxx = -9;
-    for (let i = 0; i < N; i++) { cx += lm[i].x; cy += lm[i].y; cz += lm[i].z; minx = Math.min(minx, lm[i].x); maxx = Math.max(maxx, lm[i].x); }
-    cx /= N; cy /= N; cz /= N;
+    for (let i = 0; i < NL; i++) { cx += lm[i].x; cy += lm[i].y; cz += lm[i].z; minx = Math.min(minx, lm[i].x); maxx = Math.max(maxx, lm[i].x); }
+    cx /= NL; cy /= NL; cz /= NL;
     const k = 2 / ((maxx - minx) * aspect);
-    for (let i = 0; i < N; i++) {
+    for (let i = 0; i < NL; i++) {
       base[3 * i] = (lm[i].x - cx) * aspect * k;
       base[3 * i + 1] = -(lm[i].y - cy) * k;
-      base[3 * i + 2] = -(lm[i].z - cz) * aspect * k * 1.1;
+      base[3 * i + 2] = -(lm[i].z - cz) * aspect * k;
     }
+    // rim points lean outward and back, midpoints sit between their parents
+    const rc = this.rimC, rx = rc ? (rc[0] - cx) * aspect * k : 0, ry = rc ? -(rc[1] - cy) * k : 0;
+    this.der.forEach((q, j) => {
+      const i = 3 * (NL + j);
+      if (q.p !== undefined) { const p = 3 * q.p; base[i] = rx + (base[p] - rx) * (1 + q.k); base[i + 1] = ry + (base[p + 1] - ry) * (1 + q.k); base[i + 2] = base[p + 2] - q.dz; }
+      else { const a = 3 * q.a, b = 3 * q.b; base[i] = (base[a] + base[b]) / 2; base[i + 1] = (base[a + 1] + base[b + 1]) / 2; base[i + 2] = (base[a + 2] + base[b + 2]) / 2; }
+    });
   }
 
-  // per-vertex weights for the reaction expressions, measured once on the neutral face
-  _rigPhoto() {
+  // per-vertex weights for the reactions and for how soft the tissue is
+  _rig() {
     const N = this.N, b = this.base, X = i => b[3 * i], Y = i => b[3 * i + 1];
-    const rJaw = this.rJaw = new Float32Array(N), rLid = this.rLid = new Float32Array(N), rLip = this.rLip = new Float32Array(N);
-    const rBrow = this.rBrow = new Float32Array(N), rGrit = this.rGrit = new Float32Array(N), rPuff = this.rPuff = new Float32Array(N);
+    const mk = () => new Float32Array(N);
+    const rJaw = this.rJaw = mk(), rLid = this.rLid = mk(), rLip = this.rLip = mk(), rBrow = this.rBrow = mk(), rGrit = this.rGrit = mk(), rPuff = this.rPuff = mk(), soft = this.soft = mk();
     const mouthY = (Y(13) + Y(14)) / 2, chinY = Y(152), mouthX = X(13), span = mouthY - chinY;
-    for (let i = 0; i < N; i++) {
+    for (let i = 0; i < NL; i++) {
       const t = (mouthY - Y(i)) / span;
       if (t > 0.12) rJaw[i] = smooth(0.12, 0.4, t) * Math.max(0, 1 - ((X(i) - mouthX) / 1.15) ** 2);
     }
@@ -173,141 +203,188 @@ export class Head {
     arc(LIP_UP_IN, 0, rLip, 1); arc(LIP_UP_OUT, 0, rLip, 0.6);
     for (const v of [78, 308, 61, 291]) rJaw[v] = 0.2;
     for (const eye of EYES) {
-      const mid = Y(eye.top) * 0.35 + Y(eye.bot) * 0.65;
-      for (const v of eye.up) rLid[v] = (mid - Y(v)) * 0.95;
-      for (const v of eye.lo) rLid[v] = (mid - Y(v)) * 0.8;
+      const midY = Y(eye.top) * 0.3 + Y(eye.bot) * 0.7;
+      for (const v of eye.up) rLid[v] = (midY - Y(v)) * 0.97;
+      for (const v of eye.lo) rLid[v] = (midY - Y(v)) * 0.85;
     }
     for (const brow of BROWS) {
       let far = 0; for (const v of brow) far = Math.max(far, Math.abs(X(v)));
-      for (const v of brow) { rBrow[v] = 1; rGrit[v] = 0.07 - 0.22 * (1 - Math.abs(X(v)) / far) ** 1.2; }
+      for (const v of brow) { rBrow[v] = 1; rGrit[v] = 0.03 - 0.1 * (1 - Math.abs(X(v)) / far) ** 1.2; }
     }
-    for (const c of CHEEKS) for (let i = 0; i < N; i++) {
+    for (const c of CHEEKS) for (let i = 0; i < NL; i++) {
       const d2 = (X(i) - X(c)) ** 2 + (Y(i) - (Y(c) - 0.15)) ** 2;
       rPuff[i] = Math.max(rPuff[i], Math.exp(-d2 / 0.12));
     }
-    this.eyeIdx = EYES.map(e => [e.top, e.bot]);
-    // dark mouth interior, shown when the jaw drops
-    const mg = this.mouthGeo = new THREE.BufferGeometry(), idx = [];
-    mg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(22 * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    for (let j = 0; j < 10; j++) idx.push(j, j + 1, 11 + j, j + 1, 12 + j, 11 + j);
-    mg.setIndex(idx);
-    this.mouth = new THREE.Mesh(mg, new THREE.MeshBasicMaterial({ color: 0x360c18, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -14000 }));
-    this.mouth.frustumCulled = false; this.mouth.renderOrder = 2; this.headG.add(this.mouth);
+    // derived vertices inherit from their parents (rim points move half as much)
+    this.der.forEach((q, j) => {
+      const i = NL + j;
+      for (const arr of [rJaw, rLid, rLip, rBrow, rGrit, rPuff]) arr[i] = q.p !== undefined ? arr[q.p] * 0.5 : (arr[q.a] + arr[q.b]) / 2;
+    });
+    // cheeks and jowls are loose, forehead and nose bridge are tight
+    for (let i = 0; i < N; i++) soft[i] = clamp(Math.max(rPuff[i], rJaw[i] * 0.85), 0, 1);
   }
 
-  // skull, padded headgear, neck, body, dizzy eyes, plasters
+  _material() {
+    const N = this.N, geo = this.geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('uv', new THREE.BufferAttribute(this._uv, 2));
+    geo.setAttribute('color', new THREE.BufferAttribute(this.colors, 4).setUsage(THREE.DynamicDrawUsage));
+    geo.setIndex(this._fixWinding(this._tris));
+    const sets = Array.from({ length: N }, () => new Set()), tri = geo.index.array;
+    for (let t = 0; t < tri.length; t += 3) { const [a, b, c] = [tri[t], tri[t + 1], tri[t + 2]]; sets[a].add(b).add(c); sets[b].add(a).add(c); sets[c].add(a).add(b); }
+    this.nbr = sets.map(s => Array.from(s));
+    // skin: the photo carries the colour, the lights add shape, sheen and a soft wrap
+    this.skinMat = new THREE.MeshPhysicalMaterial({ map: this.tex, vertexColors: true, transparent: true, roughness: 0.52, metalness: 0, sheen: 0.35, sheenRoughness: 0.5, sheenColor: new THREE.Color(0xffd9c4), specularIntensity: 0.35, side: THREE.DoubleSide });
+    this.mesh = new THREE.Mesh(geo, this.skinMat); this.mesh.frustumCulled = false; this.mesh.renderOrder = 3; this.mesh.castShadow = true;
+    this.headG.add(this.mesh);
+  }
+  // picture space has y down, the scene has y up: make every triangle face the camera
+  _fixWinding(list) {
+    const b = this.base, out = new Uint32Array(list.length);
+    for (let t = 0; t < list.length; t += 3) {
+      const a = list[t], q = list[t + 1], c = list[t + 2];
+      const area = (b[3 * q] - b[3 * a]) * (b[3 * c + 1] - b[3 * a + 1]) - (b[3 * c] - b[3 * a]) * (b[3 * q + 1] - b[3 * a + 1]);
+      out[t] = a; out[t + 1] = area < 0 ? c : q; out[t + 2] = area < 0 ? q : c;
+    }
+    return new THREE.BufferAttribute(out, 1);
+  }
+
+  // eyeballs from the photo that sit behind the lids, and a mouth with teeth behind the lips
+  _interiors() {
+    this.eyes = EYES.map(e => {
+      const ring = [e.ends[0], ...e.lo, e.ends[1], ...e.up.slice().reverse()], n = ring.length;
+      const g = new THREE.BufferGeometry(), uv = new Float32Array((n + 1) * 2), idx = [];
+      let cu = 0, cv = 0; for (const v of ring) { cu += this.imgX[v]; cv += this.imgY[v]; } cu /= n; cv /= n;
+      uv[0] = cu; uv[1] = 1 - cv;
+      ring.forEach((v, j) => { uv[2 * (j + 1)] = cu + (this.imgX[v] - cu) * 1.5; uv[2 * (j + 1) + 1] = 1 - (cv + (this.imgY[v] - cv) * 1.5); idx.push(0, j + 1, (j + 1) % n + 1); });
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array((n + 1) * 3), 3).setUsage(THREE.DynamicDrawUsage));
+      g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(idx);
+      const mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: this.tex, roughness: 0.25, side: THREE.DoubleSide }));
+      mesh.frustumCulled = false; mesh.renderOrder = 1; this.headG.add(mesh);
+      return { ring, g };
+    });
+    // mouth: dark cavity, tongue tint, upper and lower teeth
+    const cg = this.cavGeo = new THREE.BufferGeometry(), cidx = [], ccol = new Float32Array(22 * 3);
+    for (let j = 0; j < 10; j++) cidx.push(j, j + 1, 11 + j, j + 1, 12 + j, 11 + j);
+    for (let j = 0; j < 11; j++) { ccol.set([0.1, 0.02, 0.03], 3 * j); ccol.set([0.42, 0.13, 0.15], 3 * (11 + j)); }
+    cg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(22 * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    cg.setAttribute('color', new THREE.BufferAttribute(ccol, 3)); cg.setIndex(cidx);
+    const cav = new THREE.Mesh(cg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })); cav.frustumCulled = false; cav.renderOrder = 1; this.headG.add(cav);
+    this.teeth = [0, 1].map(() => {
+      const g = new THREE.BufferGeometry(), uv = new Float32Array(18 * 2), idx = [];
+      for (let j = 0; j < 9; j++) { uv[2 * j] = j / 8; uv[2 * j + 1] = 1; uv[2 * (9 + j)] = j / 8; uv[2 * (9 + j) + 1] = 0; }
+      for (let j = 0; j < 8; j++) idx.push(j, j + 1, 9 + j, j + 1, 10 + j, 9 + j);
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(18 * 3), 3).setUsage(THREE.DynamicDrawUsage));
+      g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(idx);
+      const mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: teethTexture(), roughness: 0.3, side: THREE.DoubleSide })); mesh.frustumCulled = false; mesh.renderOrder = 2; this.headG.add(mesh);
+      return g;
+    });
+  }
+
+  // skull with hair, ears, neck and shoulders, sized from the face
   _dress() {
-    const N = this.N, b = this.base;
-    let top = -9, bot = 9, edgeZ = 0, en = 0;
-    for (let i = 0; i < N; i++) {
-      top = Math.max(top, b[3 * i + 1]); bot = Math.min(bot, b[3 * i + 1]);
-      if (Math.abs(b[3 * i]) > 0.8) { edgeZ += b[3 * i + 2]; en++; }
+    const b = this.base, Y = i => b[3 * i + 1];
+    const top = Y(10), chin = Y(152), fh = top - chin;
+    let edgeZ = 0, n = 0; for (let i = 0; i < NL; i++) if (Math.abs(b[3 * i]) > 0.82) { edgeZ += b[3 * i + 2]; n++; } edgeZ = n ? edgeZ / n : -0.45;
+    const cy = top - fh * 0.36, ry = fh * 0.66, rx = 1.1, rz = 1.28, cz = edgeZ - 0.42;
+    const sg = new THREE.SphereGeometry(1, 40, 30), p = sg.attributes.position, col = new Float32Array(p.count * 3), c = new THREE.Color();
+    const hairLine = top - fh * 0.05, earY = (Y(159) + Y(2)) / 2;
+    for (let i = 0; i < p.count; i++) {
+      let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      if (y < 0) { const t = -y; x *= 1 - 0.42 * t * t; z *= 1 - 0.3 * t * t; if (z > 0) z *= 1 - 0.5 * t; }     // taper toward the jaw and nape
+      const wx = x * rx, wy = cy + y * ry, wz = cz + z * rz;
+      p.setXYZ(i, wx, wy, wz);
+      // hair on top and behind; skin low at the front and sides
+      const line = hairLine - Math.max(0, cz + 0.2 - wz) * 1.5;
+      const hairW = smooth(-0.12, 0.12, wy - line);
+      c.copy(this.skin).multiplyScalar(0.92).lerp(this.hair, hairW); col[3 * i] = c.r; col[3 * i + 1] = c.g; col[3 * i + 2] = c.b;
     }
-    edgeZ = en ? edgeZ / en : -0.4;
-    const mid = (top + bot) / 2, hh = (top - bot) / 2;
-    const gear = std(this.corner, 0.32), dark = std(new THREE.Color(this.corner).multiplyScalar(0.62), 0.5);
-    const skinM = std(this.skin, 0.7);
-    const ball = (m, sx, sy, sz, x, y, z, parent = this.headG) => { const s = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 20), m); s.scale.set(sx, sy, sz); s.position.set(x, y, z); parent.add(s); return s; };
-    // helmet: sits behind the face so its rim wraps the edge of the mask
-    const rx = 1.17, rz = 0.92, zc = edgeZ + 0.05 - rz * Math.sqrt(1 - (0.93 / rx) ** 2);
-    ball(gear, rx, hh * 1.1 + 0.12, rz, 0, mid + 0.12, zc);
-    ball(skinM, 1.0, hh * 0.98, 0.9, 0, mid, zc + 0.02);
-    ball(dark, 0.8, 0.2, 0.3, 0, top - 0.06, edgeZ + 0.34);                 // forehead pad
+    sg.setAttribute('color', new THREE.BufferAttribute(col, 3)); sg.computeVertexNormals();
+    const skull = new THREE.Mesh(sg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 })); skull.castShadow = true; this.headG.add(skull);
+    const skinM = new THREE.MeshStandardMaterial({ color: this.skin.clone().multiplyScalar(0.9), roughness: 0.6 });
     for (const s of [-1, 1]) {
-      ball(dark, 0.2, 0.52, 0.42, s * 1.08, mid - 0.25, edgeZ + 0.12);          // cheek pads
-      ball(gear, 0.16, 0.3, 0.3, s * 1.2, mid + 0.25, edgeZ - 0.25);            // ear cups
+      const ear = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), skinM); ear.scale.set(0.09, 0.3, 0.17); ear.rotation.set(0, s * 0.35, s * -0.12);
+      ear.position.set(s * (rx + 0.02), earY, cz + 0.1); this.headG.add(ear);
     }
-    const strap = new THREE.Mesh(new THREE.TorusGeometry(0.78, 0.075, 8, 24, Math.PI), dark);
-    strap.rotation.z = Math.PI; strap.scale.set(1.25, 0.75, 1); strap.position.set(0, bot + 0.42, edgeZ - 0.05); this.headG.add(strap);
-    // neck and body stay under the pivot
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.56, 1.3, 18), skinM); neck.position.set(0, -1.9, -0.75); this.root.add(neck);
-    this.body = ball(std(this.corner, 0.6), 2.15, 1.25, 1.0, 0, -3.45, -0.85, this.root);
-    for (const s of [-1, 1]) ball(skinM, 0.62, 0.6, 0.6, s * 1.9, -3.0, -0.85, this.root);
-    // dizzy spirals over the eyes
-    this.spirals = [0, 1].map(() => {
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: spiralTex, transparent: true, opacity: 0, depthTest: false }));
-      sp.scale.setScalar(0.5); sp.renderOrder = 5; this.headG.add(sp); return sp;
-    });
-    this.decals = [0, 1, 2].map(() => {
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: plasterTex, transparent: true, depthTest: false }));
-      sp.visible = false; sp.renderOrder = 6; this.headG.add(sp); return { sp, v: 0 };
-    });
+    // neck: skin tone from under the jaw, darker in the shadow of the chin
+    const ng = new THREE.CylinderGeometry(0.66, 0.82, 2.2, 28, 6, true), np = ng.attributes.position, ncol = new Float32Array(np.count * 3);
+    for (let i = 0; i < np.count; i++) { const t = (np.getY(i) + 1.1) / 2.2, front = Math.max(0, np.getZ(i)); c.copy(this.neckCol).multiplyScalar(0.95 - 0.4 * t * (0.4 + front)); ncol[3 * i] = c.r; ncol[3 * i + 1] = c.g; ncol[3 * i + 2] = c.b; }
+    ng.setAttribute('color', new THREE.BufferAttribute(ncol, 3));
+    const neckY = chin - 0.75, neckZ = cz + 0.12;
+    const neck = new THREE.Mesh(ng, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 })); neck.position.set(0, neckY, neckZ); neck.receiveShadow = true; this.root.add(neck);
+    // shoulders in a plain dark shirt
+    const shirt = new THREE.MeshStandardMaterial({ color: 0x1d1f26, roughness: 0.9 });
+    const torso = new THREE.Mesh(new THREE.SphereGeometry(1, 36, 20), shirt); torso.scale.set(3.3, 1.05, 1.45); torso.position.set(0, neckY - 1.75, neckZ - 0.15); torso.receiveShadow = true; this.root.add(torso);
+    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.86, 0.09, 10, 32), shirt); collar.rotation.x = Math.PI / 2 - 0.25; collar.position.set(0, neckY - 0.82, neckZ + 0.05); this.root.add(collar);
+    this.pivot.position.set(0, neckY - 0.3, neckZ); this.headG.position.set(0, -(neckY - 0.3), -neckZ);
+    this._pv = [neckY - 0.3, neckZ];
   }
 
-  // ---------- the drawn face ----------
-  _drawFace() {
-    const w = this.w, key = KEYS.map(k => Math.round(w[k] * 12)).join();
-    if (key === this._drawn) return; this._drawn = key;
-    const g = this.faceCanvas.getContext('2d'), S = 512;
-    const px = x => (0.5 + x / 2.2) * S, py = y => (0.5 - y / 2.9) * S, u = S / 2.2;
-    g.fillStyle = this.skin; g.fillRect(0, 0, S, S);
-    g.fillStyle = 'rgba(255,90,110,0.45)';
-    for (const s of [-1, 1]) { g.beginPath(); g.arc(px(s * 0.58), py(-0.28), u * (0.17 + 0.1 * w.puff), 0, 6.3); g.fill(); }
-    g.lineCap = 'round'; g.strokeStyle = '#2a1a12'; g.fillStyle = '#2a1a12';
-    for (const s of [-1, 1]) {
-      const ex = px(s * 0.38), ey = py(0.3);
-      if (w.squint > 0.6) {                                  // squeezed shut: > <
-        g.lineWidth = 13; g.beginPath(); g.moveTo(ex - s * u * 0.17, ey - u * 0.13); g.lineTo(ex + s * u * 0.12, ey); g.lineTo(ex - s * u * 0.17, ey + u * 0.13); g.stroke();
-      } else {
-        const ry = u * 0.25 * (1 - 0.7 * w.squint);
-        g.fillStyle = '#fff'; g.beginPath(); g.ellipse(ex, ey, u * 0.19, ry, 0, 0, 6.3); g.fill(); g.lineWidth = 6; g.stroke();
-        g.fillStyle = '#2a1a12'; g.beginPath(); g.arc(ex - s * u * 0.05 * w.grit, ey + u * 0.03, u * 0.085, 0, 6.3); g.fill();
-        g.fillStyle = '#fff'; g.beginPath(); g.arc(ex + u * 0.03, ey - u * 0.02, u * 0.028, 0, 6.3); g.fill();
-      }
-      const by = 0.74 + 0.13 * w.brow;
-      g.lineWidth = 17; g.beginPath(); g.moveTo(px(s * 0.62), py(by + 0.07 * w.grit)); g.lineTo(px(s * 0.17), py(by - 0.22 * w.grit + 0.05 * w.brow)); g.stroke();
+  // creases sit in shade: darken vertices that lie below their neighbours
+  _occlusion() {
+    const { N, base, relief, nbr, ao } = this, z = i => base[3 * i + 2] + relief[i] * this.reliefT;
+    for (let i = 0; i < N; i++) {
+      const L = nbr[i]; if (!L.length) continue; let avg = 0; for (const j of L) avg += z(j);
+      ao[i] = 1 - clamp((avg / L.length - z(i)) * 5, 0, 0.3);
     }
-    g.lineWidth = 7; g.beginPath(); g.arc(px(0), py(-0.02), u * 0.07, 0.3, 2.8); g.stroke();
-    const mx = px(this.skew * 0.12), my = py(-0.66);
-    if (w.jaw > 0.15) {
-      const rx = u * (0.2 + 0.1 * w.jaw), ry = u * (0.05 + 0.3 * w.jaw);
-      g.fillStyle = '#3a0d18'; g.beginPath(); g.ellipse(mx, my - u * 0.02 + ry * 0.6, rx, ry, 0, 0, 6.3); g.fill(); g.lineWidth = 7; g.stroke();
-      g.save(); g.clip();
-      g.fillStyle = '#ff7a8a'; g.beginPath(); g.ellipse(mx, my + ry * 1.5, rx * 0.7, ry * 0.6, 0, 0, 6.3); g.fill();
-      g.fillStyle = '#fff'; g.fillRect(mx - rx * 0.6, my - ry * 0.5, rx * 1.2, ry * 0.42);
-      g.restore();
-    } else if (w.grit > 0.4) {
-      g.fillStyle = '#fff'; g.lineWidth = 6; g.beginPath(); g.roundRect(mx - u * 0.24, my - u * 0.07, u * 0.48, u * 0.15, 8); g.fill(); g.stroke();
-      g.lineWidth = 3; for (let k = -2; k <= 2; k++) { g.beginPath(); g.moveTo(mx + k * u * 0.08, my - u * 0.07); g.lineTo(mx + k * u * 0.08, my + u * 0.08); g.stroke(); }
-    } else {
-      g.lineWidth = 10; g.beginPath();
-      if (w.brow > 0.3) g.arc(mx, my + u * 0.22, u * 0.24, 3.9, 5.5); else g.arc(mx, my - u * 0.2, u * 0.26, 0.6, 2.55);
-      g.stroke();
+  }
+
+  // relief from a depth picture: sampleDepth(u, v) returns nearness 0..1 in picture coordinates.
+  // The landmark depth is the prior: the depth picture is fitted to it, then blended in.
+  applyDepth(sampleDepth) {
+    const { N, base, imgX, imgY, alpha } = this, d = new Float32Array(N);
+    let sd = 0, sz = 0, sdd = 0, sdz = 0, szz = 0, n = 0;
+    for (let i = 0; i < N; i++) {
+      d[i] = sampleDepth(imgX[i], imgY[i]);
+      if (i < NL) { const z = base[3 * i + 2]; sd += d[i]; sz += z; sdd += d[i] * d[i]; sdz += d[i] * z; szz += z * z; n++; }
     }
-    this.tex.needsUpdate = true;
+    const vd = sdd / n - (sd / n) ** 2, vz = szz / n - (sz / n) ** 2, cov = sdz / n - (sd / n) * (sz / n);
+    const r = cov / Math.sqrt(vd * vz + 1e-12), a = cov / (vd + 1e-12), b0 = sz / n - a * sd / n;
+    if (!(r > 0.45) || !(a > 0)) return { ok: false, r };
+    for (let i = 0; i < N; i++) {
+      const zd = a * d[i] + b0, diff = clamp(zd - base[3 * i + 2], -0.22, 0.22);
+      this.relief[i] = diff * 0.65 * Math.min(1, alpha[i] * 1.2);
+    }
+    // one smoothing pass keeps pores and stubble from turning into bumps
+    const sm = new Float32Array(N);
+    for (let i = 0; i < N; i++) { const L = this.nbr[i]; let s = this.relief[i] * 2; for (const j of L) s += this.relief[j]; sm[i] = s / (L.length + 2); }
+    this.relief.set(sm); this.reliefT = 1; this._occlusion();
+    return { ok: true, r };
   }
 
   // ---------- reactions ----------
   setExpr(name, hold = 0.35) { this.wT = EXPR[name] || EXPR.neutral; this.exprHold = hold; }
   setIdle(name) { this.idle = name; if (this.exprHold <= 0) this.wT = EXPR[name]; }
 
-  // apply one blow; x, y in head-plane units
+  // one blow; x, y in head-plane units
   hit({ x, y, dx = 0, dy = 0, strength = 1 }) {
-    strength = Math.max(0.35, Math.min(1.8, strength));
-    const { N, base, off, vel, bruise } = this, sig = 0.55, s = this.spring;
+    strength = clamp(strength, 0.35, 1.8);
+    const { N, base, off, vel, bruise, soft } = this, sig = 0.5, s = this.spring;
     for (let i = 0; i < N; i++) {
-      const d2 = (base[3 * i] + off[3 * i] - x) ** 2 + (base[3 * i + 1] + off[3 * i + 1] - y) ** 2;
-      const w = Math.exp(-d2 / (sig * sig)); if (w < 0.01) continue;
-      vel[3 * i] += dx * strength * w * 6; vel[3 * i + 1] += dy * strength * w * 6; vel[3 * i + 2] -= strength * w * 16;
-      bruise[i] = Math.min(1, bruise[i] + w * 0.4 * strength);
+      const i3 = 3 * i, d2 = (base[i3] + off[i3] - x) ** 2 + (base[i3 + 1] + off[i3 + 1] - y) ** 2;
+      const w = Math.exp(-d2 / (sig * sig)), lag = soft[i] * strength;
+      vel[i3] += dx * lag * 2.2; vel[i3 + 1] += dy * lag * 2.2 - lag * 0.8;        // loose tissue is thrown by every blow
+      if (w < 0.01) continue;
+      vel[i3] += dx * strength * w * 5; vel[i3 + 1] += dy * strength * w * 5; vel[i3 + 2] -= strength * w * 11;
+      bruise[i] = Math.min(1, bruise[i] + w * 0.34 * strength);
     }
-    s.vx += -y * strength * 4 - dy * strength * 3 - strength * 2.5;       // tilt away from the blow
-    s.vy += x * strength * 5 + dx * strength * 3;
-    s.vz += -x * strength * 2.5 - dx * strength * 3;
-    s.vpz -= strength * 4; s.vpx += dx * strength * 3; s.vpy += dy * strength * 3;
-    this.skew = Math.max(-1, Math.min(1, dx + x * 0.6));
-    this.setExpr(strength > 1.15 ? 'heavy' : 'hit', 0.28 + 0.2 * strength);
+    s.vx += -y * strength * 3 - dy * strength * 2.4 - strength * 2;       // rock away from the blow
+    s.vy += x * strength * 4 + dx * strength * 2.6;
+    s.vz += -x * strength * 2 - dx * strength * 2.4;
+    s.vpz -= strength * 3; s.vpx += dx * strength * 2.2; s.vpy += dy * strength * 2.2;
+    this.skew = clamp(dx + x * 0.6, -1, 1);
+    this.setExpr(strength > 1.15 ? 'heavy' : 'hit', 0.26 + 0.2 * strength);
   }
 
-  knockDown() { this.fallT = 1; this.fallV += 3; this.setExpr('ko', 99); this.spring.vx -= 10; }
-  bounceBack() { this.fallT = 0; this.fallV -= 9; this.setExpr('grit', 1.6); this.bruise.fill(0); this.spring.vpy += 7; }
+  knockDown() { this.fallT = 1; this.fallV += 3; this.setExpr('ko', 99); this.spring.vx -= 8; }
+  bounceBack() { this.fallT = 0; this.fallV -= 9; this.setExpr('grit', 1.6); this.bruise.fill(0); this.spring.vpy += 6; }
 
-  // bruises swell into booboos with plasters, then pop back; returns seconds until smooth again
+  // the bruises swell up for a second, then spring back; returns seconds until smooth again
   booboo() {
     const { N, base, bruise, bump } = this, picks = [];
     for (let k = 0; k < 3; k++) {
       let best = -1, bv = 0.12;
-      for (let i = 0; i < N; i++) {
+      for (let i = 0; i < NL; i++) {
         if (bruise[i] <= bv) continue;
         if (picks.some(p => (base[3 * p] - base[3 * i]) ** 2 + (base[3 * p + 1] - base[3 * i + 1]) ** 2 < 0.3)) continue;
         best = i; bv = bruise[i];
@@ -318,10 +395,9 @@ export class Head {
     bump.fill(0);
     for (const p of picks) for (let i = 0; i < N; i++) {
       const d2 = (base[3 * p] - base[3 * i]) ** 2 + (base[3 * p + 1] - base[3 * i + 1]) ** 2;
-      bump[i] = Math.max(bump[i], Math.exp(-d2 / 0.05));
+      bump[i] = Math.max(bump[i], Math.exp(-d2 / 0.07));
     }
-    this.decals.forEach((d, k) => { d.v = picks[k] ?? -1; d.sp.visible = d.v >= 0; d.sp.material.rotation = (Math.random() - 0.5) * 1.2; });
-    this.bumpT = 1; this.bumpV = 9; this.bumpTimer = 1.0;
+    this.bumpT = 1; this.bumpV = 7; this.bumpTimer = 1.0;
     this.setExpr('hurt', 1.0);
     return 1.5;
   }
@@ -332,86 +408,90 @@ export class Head {
   // ---------- per frame ----------
   update(dt) {
     dt = Math.min(dt, 1 / 30); this.t += dt;
-    const { N, base, off, vel, nbr, bruise, bump, colors } = this, s = this.spring;
+    const { N, base, off, vel, nbr, bruise, bump, colors, soft, relief, alpha, ao } = this, s = this.spring;
     const sub = 2, h = dt / sub;
     if (dt > 0) for (let q = 0; q < sub; q++) {
       for (let i = 0; i < N; i++) {
-        const L = nbr[i], n = L.length || 1;
-        for (let a = 0; a < 3; a++) {
-          const idx = 3 * i + a; let avg = 0;
-          for (let j = 0; j < L.length; j++) avg += off[3 * L[j] + a];
-          vel[idx] += (-K * off[idx] - C * vel[idx] + KN * (avg / n - off[idx])) * h;
-        }
+        const L = nbr[i], n = L.length || 1, i3 = 3 * i, k = K * (1.3 - 0.75 * soft[i]), c = C * (1.15 - 0.45 * soft[i]);
+        let ax = 0, ay = 0, az = 0;
+        for (let j = 0; j < L.length; j++) { const j3 = 3 * L[j]; ax += off[j3]; ay += off[j3 + 1]; az += off[j3 + 2]; }
+        vel[i3] += (-k * off[i3] - c * vel[i3] + KN * (ax / n - off[i3])) * h;
+        vel[i3 + 1] += (-k * off[i3 + 1] - c * vel[i3 + 1] + KN * (ay / n - off[i3 + 1])) * h;
+        vel[i3 + 2] += (-k * off[i3 + 2] - c * vel[i3 + 2] + KN * (az / n - off[i3 + 2])) * h;
       }
       for (let i = 0; i < 3 * N; i++) off[i] += vel[i] * h;
-      s.vx += (-55 * s.rx - 4.2 * s.vx) * h; s.rx += s.vx * h;
-      s.vy += (-55 * s.ry - 4.2 * s.vy) * h; s.ry += s.vy * h;
-      s.vz += (-55 * s.rz - 4.2 * s.vz) * h; s.rz += s.vz * h;
-      s.vpx += (-50 * s.px - 5 * s.vpx) * h; s.px += s.vpx * h;
-      s.vpy += (-50 * s.py - 5 * s.vpy) * h; s.py += s.vpy * h;
-      s.vpz += (-50 * s.pz - 5 * s.vpz) * h; s.pz += s.vpz * h;
+      s.vx += (-70 * s.rx - 6.5 * s.vx) * h; s.rx += s.vx * h;
+      s.vy += (-70 * s.ry - 6.5 * s.vy) * h; s.ry += s.vy * h;
+      s.vz += (-70 * s.rz - 6.5 * s.vz) * h; s.rz += s.vz * h;
+      s.vpx += (-60 * s.px - 7 * s.vpx) * h; s.px += s.vpx * h;
+      s.vpy += (-60 * s.py - 7 * s.vpy) * h; s.py += s.vpy * h;
+      s.vpz += (-60 * s.pz - 7 * s.vpz) * h; s.pz += s.vpz * h;
       this.fallV += (-70 * (this.fallP - this.fallT) - 6.5 * this.fallV) * h; this.fallP += this.fallV * h;
       this.bumpV += (-190 * (this.bumpP - this.bumpT) - 9 * this.bumpV) * h; this.bumpP += this.bumpV * h;
     }
-    // booboo timeline
-    if (this.bumpTimer > 0) { this.bumpTimer -= dt; if (this.bumpTimer <= 0) { this.bumpT = 0; this.bumpV -= 14; this.bruise.fill(0); this.onPop && this.onPop(); } }
-    if (this.bumpT === 0 && Math.abs(this.bumpP) < 0.02 && Math.abs(this.bumpV) < 0.3) { this.bumpP = 0; this.decals.forEach(d => { d.sp.visible = false; }); }
-    // expression weights ease toward their targets
+    if (this.bumpTimer > 0) { this.bumpTimer -= dt; if (this.bumpTimer <= 0) { this.bumpT = 0; this.bumpV -= 12; this.bruise.fill(0); this.onPop && this.onPop(); } }
+    if (this.bumpT === 0 && Math.abs(this.bumpP) < 0.02 && Math.abs(this.bumpV) < 0.3) this.bumpP = 0;
     if (this.exprHold > 0) { this.exprHold -= dt; if (this.exprHold <= 0) this.wT = EXPR[this.idle]; }
-    const e = 1 - Math.exp(-dt * 22);
+    const e = 1 - Math.exp(-dt * 20);
     for (const k of KEYS) this.w[k] += (this.wT[k] - this.w[k]) * e;
-    // swap animation
+    this.reliefAmt += (this.reliefT - this.reliefAmt) * Math.min(1, dt * 3);
     this.swap += (this.swapT - this.swap) * Math.min(1, dt * 7);
     if (this.swapT === 1 && this.swap > 0.97) this.root.visible = false;
 
-    const w = this.w, bp = this.bumpP, pos = this.geo.attributes.position.array, photo = this.kind === 'photo';
+    const w = this.w, bp = this.bumpP, ra = this.reliefAmt, pos = this.geo.attributes.position.array;
+    const { rJaw, rLid, rLip, rBrow, rGrit, rPuff } = this;
     for (let i = 0; i < N; i++) {
-      const i3 = 3 * i, bz = bump[i] * bp;
-      let x = base[i3] + off[i3], y = base[i3 + 1] + off[i3 + 1], z = base[i3 + 2] + off[i3 + 2] + bz * 0.34;
-      if (photo) {
-        const j = this.rJaw[i];
-        y += -0.4 * w.jaw * j + w.squint * this.rLid[i] + 0.12 * w.brow * this.rBrow[i] + w.grit * this.rGrit[i] + 0.07 * w.jaw * this.rLip[i];
-        z += 0.3 * w.puff * this.rPuff[i] - 0.07 * w.jaw * j;
-        x += 0.1 * w.puff * this.rPuff[i] * Math.sign(base[i3]) + this.skew * 0.16 * w.jaw * j;
-      } else if (w.puff > 0.02) {
-        z += 0.22 * w.puff * Math.exp(-((Math.abs(base[i3]) - 0.58) ** 2 + (base[i3 + 1] + 0.28) ** 2) / 0.08);
-      }
-      pos[i3] = x; pos[i3 + 1] = y; pos[i3 + 2] = z;
-      if (dt > 0) bruise[i] = Math.max(0, bruise[i] - dt * 0.035);
-      const b = bruise[i], r = Math.max(0, bz);
-      colors[i3] = 1 - 0.15 * b + 0.3 * r; colors[i3 + 1] = 1 - 0.7 * b - 0.5 * r; colors[i3 + 2] = 1 - 0.45 * b - 0.45 * r;
+      const i3 = 3 * i, bz = bump[i] * bp, j = rJaw[i], b = bruise[i];
+      pos[i3] = base[i3] + off[i3] + 0.07 * w.puff * rPuff[i] * Math.sign(base[i3]) + this.skew * 0.1 * w.jaw * j;
+      pos[i3 + 1] = base[i3 + 1] + off[i3 + 1] - 0.3 * w.jaw * j + w.squint * rLid[i] + 0.07 * w.brow * rBrow[i] + w.grit * rGrit[i] + 0.04 * w.jaw * rLip[i];
+      pos[i3 + 2] = base[i3 + 2] + off[i3 + 2] + relief[i] * ra + bz * 0.2 + b * 0.05 + 0.16 * w.puff * rPuff[i] - 0.05 * w.jaw * j;
+      if (dt > 0) bruise[i] = Math.max(0, b - dt * 0.03);
+      // bruises: a dull red-purple under the skin, deeper where it swells
+      const m = Math.min(1, b * 0.9 + Math.max(0, bz) * 0.7), a = ao[i], c4 = 4 * i;
+      colors[c4] = a * (1 - 0.2 * m); colors[c4 + 1] = a * (1 - 0.52 * m); colors[c4 + 2] = a * (1 - 0.36 * m); colors[c4 + 3] = alpha[i];
     }
     this.geo.attributes.position.needsUpdate = true; this.geo.attributes.color.needsUpdate = true;
     this.geo.computeVertexNormals();
-    if (photo) {
-      const mp = this.mouthGeo.attributes.position.array;
-      for (let j = 0; j < 11; j++) for (let a = 0; a < 3; a++) {
-        mp[3 * j + a] = pos[3 * LIP_UP_IN[j] + a] + (a === 2 ? 0.03 : 0);
-        mp[3 * (11 + j) + a] = pos[3 * LIP_LO_IN[j] + a] + (a === 2 ? 0.03 : 0);
-      }
-      this.mouthGeo.attributes.position.needsUpdate = true;
-    } else this._drawFace();
-    // dizzy spirals and plasters ride on the face
-    this.spirals.forEach((sp, k) => {
-      sp.material.opacity = Math.min(1, w.dizzy * 1.3); sp.visible = w.dizzy > 0.03; sp.material.rotation = -this.t * 7 * (k ? 1 : -1);
-      if (photo) { const [a, b] = this.eyeIdx[k]; sp.position.set((pos[3 * a] + pos[3 * b]) / 2, (pos[3 * a + 1] + pos[3 * b + 1]) / 2, pos[3 * a + 2] + 0.12); }
-      else sp.position.set(...this.eyeAt[k]);
-    });
-    for (const d of this.decals) if (d.sp.visible && d.v >= 0) {
-      d.sp.position.set(pos[3 * d.v], pos[3 * d.v + 1], pos[3 * d.v + 2] + 0.1);
-      d.sp.scale.setScalar(Math.max(0.001, 0.62 * bp));
+
+    // eyeballs: follow the socket, never the lids; on a KO they roll
+    const roll = w.dizzy, ex = roll * Math.sin(this.t * 5) * 0.035, ey = roll * (0.05 + Math.cos(this.t * 5) * 0.02);
+    for (const eye of this.eyes) {
+      const ep = eye.g.attributes.position.array, ring = eye.ring, n = ring.length; let cx = 0, cy = 0, cz = 0;
+      for (const v of ring) { cx += base[3 * v] + off[3 * v]; cy += base[3 * v + 1] + off[3 * v + 1]; cz += base[3 * v + 2] + off[3 * v + 2] + relief[v] * ra; }
+      cx /= n; cy /= n; cz /= n;
+      ep[0] = cx + ex; ep[1] = cy + ey; ep[2] = cz - 0.02;
+      ring.forEach((v, k) => { const o = 3 * (k + 1); ep[o] = cx + (base[3 * v] + off[3 * v] - cx) * 1.5 + ex; ep[o + 1] = cy + (base[3 * v + 1] + off[3 * v + 1] - cy) * 1.5 + ey; ep[o + 2] = cz - 0.07; });
+      eye.g.attributes.position.needsUpdate = true; eye.g.computeVertexNormals();
     }
-    // rigid motion: bobble on the neck, fall, swap spin, idle sway
-    const cl = THREE.MathUtils.clamp, f = this.fallP, sw = this.swap;
-    const sway = Math.sin(this.t * 1.7) * 0.035;
-    this.pivot.rotation.set(cl(s.rx, -0.42, 0.42) * 0.8 - f * 0.55, cl(s.ry, -0.5, 0.5) * 0.8 + sway, cl(s.rz, -0.4, 0.4) * 0.7 + f * 0.22);
-    this.headG.position.set(s.px * 0.5, 1.7 + s.py * 0.5 + Math.sin(this.t * 2.3) * 0.02, 0.75 + s.pz);
-    this.root.position.set(this.swapDir * sw * 9, -f * 1.25, -f * 0.9 - sw * 2);
-    this.root.rotation.set(-f * 0.35, sw * this.swapDir * 5, f * 0.12);
+    // mouth cavity and teeth hang behind the lips
+    const cp = this.cavGeo.attributes.position.array, mx = (pos[3 * 78] + pos[3 * 308]) / 2;
+    for (let k = 0; k < 11; k++) {
+      const u = 3 * LIP_UP_IN[k], l = 3 * LIP_LO_IN[k];
+      cp[3 * k] = mx + (pos[u] - mx) * 1.12; cp[3 * k + 1] = pos[u + 1] + 0.03; cp[3 * k + 2] = pos[u + 2] - 0.16;
+      cp[3 * (11 + k)] = mx + (pos[l] - mx) * 1.12; cp[3 * (11 + k) + 1] = pos[l + 1] - 0.03; cp[3 * (11 + k) + 2] = pos[l + 2] - 0.13;
+    }
+    this.cavGeo.attributes.position.needsUpdate = true;
+    [LIP_UP_IN, LIP_LO_IN].forEach((chain, r) => {
+      const tp = this.teeth[r].attributes.position.array, dir = r ? 1 : -1;
+      for (let k = 0; k < 9; k++) {
+        const v = 3 * chain[k + 1], prof = 0.55 + 0.45 * Math.sin(k / 8 * Math.PI), x = mx + (pos[v] - mx) * 0.94, z = pos[v + 2] - (r ? 0.1 : 0.07);
+        const lipY = pos[v + 1] - dir * 0.012;
+        tp[3 * k] = x; tp[3 * k + 1] = r ? lipY + 0.075 * prof : lipY; tp[3 * k + 2] = z;                 // row 0..8: gum side for uppers, tip side for lowers
+        tp[3 * (9 + k)] = x; tp[3 * (9 + k) + 1] = r ? lipY - 0.02 : lipY - 0.095 * prof; tp[3 * (9 + k) + 2] = z;
+      }
+      this.teeth[r].attributes.position.needsUpdate = true; this.teeth[r].computeVertexNormals();
+    });
+
+    // rigid motion: rock on the neck, fall, swap, a little breathing sway
+    const f = this.fallP, sw = this.swap, [py, pz] = this._pv;
+    this.pivot.rotation.set(clamp(s.rx, -0.34, 0.34) * 0.8 - f * 0.5 + Math.sin(this.t * 1.1) * 0.012, clamp(s.ry, -0.42, 0.42) * 0.8 + Math.sin(this.t * 0.8) * 0.03, clamp(s.rz, -0.3, 0.3) * 0.7 + f * 0.2);
+    this.headG.position.set(s.px * 0.4, -py + s.py * 0.4, -pz + s.pz * 0.8);
+    this.root.position.set(this.swapDir * sw * 9, -f * 1.15, -f * 0.8 - sw * 2);
+    this.root.rotation.set(-f * 0.3, sw * this.swapDir * 2.4, f * 0.1);
   }
 
   dispose() {
-    this.root.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+    this.root.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material && o.material !== undefined && o.material.dispose) o.material.dispose(); });
     if (this.tex) this.tex.dispose();
     this.root.removeFromParent();
   }
