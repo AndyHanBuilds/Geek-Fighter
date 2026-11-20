@@ -8,3 +8,18 @@ data_*/
 mono_crash.*.json
 .DS_Store
 Thumbs.db
+
+# Face scans, photos and 3D head models stay on disk, never in git (public repo, real people's faces)
+facepunch/assets/people/
+facepunch/assets/head-template/
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.glb
+*.gltf
+*.obj
+*.fbx
+*.stl
+*.blend
+*.bin
